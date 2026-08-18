@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Load Lab — Vehicle Size Selector</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
+  --ink:#182420; --muted:#5D6B66; --faint:#8A968F;
+  --line:#DFE5E2; --line2:#EBEFED;
+  --accent:#D9641E; --accent-ink:#B14E12; --accent-soft:#FBEDE3;
+  --good:#23744F; --good-soft:#E4F1EA; --bad:#B3402E; --bad-soft:#F8E9E5;
+  --warn:#8A6D1B; --warn-soft:#F7EFD8;
+  --bay:#14181D; --bay-line:#2A323B;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131917; --surface:#1B2320; --surface2:#20292624;
+    --ink:#E8EDEA; --muted:#93A19B; --faint:#6C7A74;
+    --line:#2A3531; --line2:#232D29;
+    --accent:#F08A48; --accent-ink:#F49E66; --accent-soft:#3A281C;
+    --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
+    --warn:#D8B457; --warn-soft:#3A311A;
+    --bay:#101419; --bay-line:#242C35;
+  }
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Space Grotesk",system-ui,sans-serif;
+  font-size:15px; line-height:1.45;
+  padding:clamp(14px,2.5vw,30px);
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+header{max-width:1420px; margin:0 auto 20px; display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; justify-content:space-between;}
+h1{font-size:clamp(22px,3vw,30px); font-weight:700; letter-spacing:-0.02em; line-height:1.1;}
+.sub{color:var(--muted); font-size:13.5px; margin-top:6px; max-width:72ch;}
+.hdr-note{color:var(--faint); font-size:12px; text-align:right;}
+
+.lab{max-width:1500px; margin:0 auto; display:grid; grid-template-columns:480px 1fr; gap:18px; align-items:start;}
+@media (max-width:1020px){ .lab{grid-template-columns:1fr;} }
+
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px; min-width:0;}
+.panel h2{font-size:15px; font-weight:700; letter-spacing:-0.01em; margin-bottom:4px;}
+.panel .hint{color:var(--muted); font-size:12.5px; margin-bottom:10px;}
+.col-left{display:flex; flex-direction:column; gap:18px;}
+
+/* ---- paste box ---- */
+textarea{
+  width:100%; min-height:150px; resize:vertical;
+  font-family:"IBM Plex Mono",monospace; font-size:13px; line-height:1.55;
+  color:var(--ink); background:var(--surface2); border:1px solid var(--line);
+  border-radius:var(--radius); padding:12px;
+}
+textarea:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.paste-row{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;}
+button.primary{
+  border:0; background:var(--accent); color:#fff; cursor:pointer;
+  font:inherit; font-weight:600; font-size:13.5px; border-radius:8px; padding:9px 16px;
+  transition:filter .15s ease, transform .1s ease;
+}
+button.primary:hover{filter:brightness(1.07);}
+button.primary:active{transform:translateY(1px);}
+button.primary:focus-visible{outline:2px solid var(--ink); outline-offset:2px;}
+button.ghost{
+  border:1px solid var(--line); background:var(--surface2); color:var(--muted); cursor:pointer;
+  font:inherit; font-size:12.5px; font-weight:600; border-radius:8px; padding:8px 12px;
+  transition:color .15s ease, border-color .15s ease;
+}
+button.ghost:hover{color:var(--ink); border-color:var(--faint);}
+button.ghost:focus-visible{outline:2px solid var(--accent);}
+select.ghost{
+  border:1px solid var(--line); background:var(--surface2); color:var(--muted);
+  font:inherit; font-size:12.5px; font-weight:600; border-radius:8px; padding:8px 10px; cursor:pointer;
+}
+
+/* ---- freight rows ---- */
+.fhead{
+  display:grid; grid-template-columns:40px 92px minmax(158px,270px) 56px 18px; gap:0 8px;
+  font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--faint); padding:0 2px 6px; border-bottom:1px solid var(--line);
+}
+.frow{
+  display:grid; grid-template-columns:40px 92px minmax(158px,270px) 56px 18px; gap:6px 8px;
+  align-items:center; padding:9px 2px; border-bottom:1px solid var(--line2);
+}
+.frow.hovering{background:var(--accent-soft); border-radius:8px;}
+.frow input[type="number"]{
+  width:100%; font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:500;
+  color:var(--ink); background:var(--surface2); border:1px solid var(--line);
+  border-radius:6px; padding:6px 4px; text-align:right;
+  -moz-appearance:textfield; appearance:textfield;
+}
+.frow input[type="number"]::-webkit-inner-spin-button,
+.frow input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none; margin:0;}
+.frow input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.frow input.assumed{border-color:var(--warn); background:var(--warn-soft); color:var(--warn);}
+.frow select{
+  width:100%; font:inherit; font-size:13px; font-weight:600; color:var(--ink);
+  background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:6px 4px;
+}
+.frow .dims3{display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:3px; align-items:center;}
+.frow .dims3 i{font-style:normal; color:var(--faint); font-size:11px;}
+.frow .del{
+  border:0; background:transparent; color:var(--faint); cursor:pointer; font-size:15px; line-height:1;
+  padding:4px 2px; border-radius:6px; justify-self:end;
+}
+.frow .del:hover{color:var(--bad); background:var(--bad-soft);}
+.frow .meta{
+  grid-column:2 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-height:22px;
+}
+.frow .swatch{display:inline-block; width:9px; height:9px; border-radius:3px; justify-self:end;}
+.assume{display:inline-block; font-size:10px; font-weight:600; letter-spacing:.04em; color:var(--warn);
+  background:var(--warn-soft); border-radius:5px; padding:2px 7px;}
+.tog{
+  border:1px solid var(--line); background:var(--surface2); color:var(--faint);
+  cursor:pointer; font-family:"IBM Plex Mono",monospace; font-size:10px; font-weight:600; letter-spacing:.04em;
+  border-radius:5px; padding:2px 8px;
+  transition:color .15s ease, border-color .15s ease;
+}
+.tog[aria-pressed="true"]{color:var(--good); border-color:var(--good); background:var(--good-soft);}
+.tog[aria-pressed="false"]{color:var(--bad); border-color:var(--bad); background:var(--bad-soft); text-decoration:line-through;}
+.tog:focus-visible{outline:2px solid var(--accent);}
+.dropsel{
+  width:auto !important; font-family:"IBM Plex Mono",monospace !important;
+  font-size:10px !important; font-weight:600 !important; color:var(--faint) !important;
+  padding:2px 4px !important; border-radius:5px !important;
+}
+
+/* ---- items table (legacy header helpers) ---- */
+.items-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+.itable{width:100%; border-collapse:collapse; margin-top:8px;}
+.itable th{
+  text-align:left; font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--faint); padding:4px 6px 6px; border-bottom:1px solid var(--line);
+}
+.itable td{padding:5px 3px; border-bottom:1px solid var(--line2); vertical-align:middle;}
+.itable td.dims{white-space:nowrap;}
+.itable input[type="number"]{
+  width:44px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; font-weight:500;
+  color:var(--ink); background:var(--surface2); border:1px solid var(--line);
+  border-radius:6px; padding:5px 4px; text-align:right;
+}
+.itable input.qty{width:40px;}
+.itable input.wt{width:58px;}
+.itable input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.itable select{
+  font:inherit; font-size:12.5px; font-weight:600; color:var(--ink);
+  background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:5px 3px; max-width:86px;
+}
+.itable .del{
+  border:0; background:transparent; color:var(--faint); cursor:pointer; font-size:15px; line-height:1;
+  padding:4px 6px; border-radius:6px;
+}
+.itable .tog{
+  display:block; border:1px solid var(--line); background:var(--surface2); color:var(--faint);
+  cursor:pointer; font-family:"IBM Plex Mono",monospace; font-size:9.5px; font-weight:600; letter-spacing:.04em;
+  border-radius:5px; padding:2px 6px; margin:2px 0; min-width:52px; text-align:center;
+  transition:color .15s ease, border-color .15s ease;
+}
+.itable .tog[aria-pressed="true"]{color:var(--good); border-color:var(--good); background:var(--good-soft);}
+.itable .tog[aria-pressed="false"]{color:var(--bad); border-color:var(--bad); background:var(--bad-soft); text-decoration:line-through;}
+.itable .tog:focus-visible{outline:2px solid var(--accent);}
+.itable .swatch{display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:5px; vertical-align:0;}
+.itable .dropsel{
+  display:block; margin-top:2px; max-width:64px !important;
+  font-family:"IBM Plex Mono",monospace; font-size:9.5px !important; color:var(--faint);
+}
+.itable .del:hover{color:var(--bad); background:var(--bad-soft);}
+tr.hovering td{background:var(--accent-soft);}
+.assume{display:inline-block; font-size:9.5px; font-weight:600; letter-spacing:.05em; color:var(--warn);
+  background:var(--warn-soft); border-radius:4px; padding:1px 5px; margin-top:2px;}
+.itable input.assumed{border-color:var(--warn); background:var(--warn-soft); color:var(--warn);}
+
+/* ---- loading panel ---- */
+.chips{display:flex; flex-wrap:wrap; gap:6px;}
+.chips button{
+  border:1px solid var(--line); background:var(--surface2); color:var(--muted); cursor:pointer;
+  font:inherit; font-size:12.5px; font-weight:600; border-radius:999px; padding:7px 13px;
+  transition:color .15s ease, border-color .15s ease, background .15s ease;
+}
+.chips button:hover{color:var(--ink); border-color:var(--faint);}
+.chips button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+.chips button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.chips button:disabled{
+  opacity:.45; cursor:not-allowed; text-decoration:line-through; text-decoration-thickness:1px;
+}
+.chips button:disabled:hover{color:var(--muted); border-color:var(--line);}
+.advice{
+  margin-top:12px; padding:12px 14px; border-radius:10px;
+  background:var(--surface2); border:1px solid var(--line2);
+  font-size:13px; line-height:1.6;
+}
+.advice:empty{display:none;}
+.advice .a-head{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:5px;}
+.advice .ask{color:var(--accent-ink); font-weight:600;}
+.advice .warn-line{color:var(--warn);}
+.reqbadge{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.06em;
+  color:var(--accent-ink); background:var(--accent-soft); border-radius:5px; padding:3px 8px; margin-left:8px; vertical-align:3px;}
+.knowref{margin-top:12px;}
+.knowref summary{cursor:pointer; font-size:12.5px; font-weight:600; color:var(--muted);}
+.knowref summary:hover{color:var(--ink);}
+.knowref table{width:100%; border-collapse:collapse; margin-top:8px; font-size:12px;}
+.knowref th{text-align:left; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--faint); padding:3px 6px; border-bottom:1px solid var(--line);}
+.knowref td{padding:4px 6px; border-bottom:1px solid var(--line2); color:var(--muted);}
+.knowref td:first-child{color:var(--ink); font-weight:600;}
+.knowref .src{font-size:11px; color:var(--faint); margin-top:8px; line-height:1.5;}
+.add-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
+.empty-note{color:var(--faint); font-size:13px; padding:14px 4px; text-align:center;}
+.parse-notes{margin-top:8px; font-size:12px; color:var(--warn); line-height:1.5;}
+.parse-notes:empty{display:none;}
+
+/* ---- right side ---- */
+.col-right{display:flex; flex-direction:column; gap:18px; min-width:0;}
+
+/* decision card — the one place to read the answer */
+.decision{padding:16px 18px 14px;}
+.d-top{display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:10px 18px;}
+.decision .rec-label{font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--muted);}
+.decision .rec-name{font-size:clamp(24px,3vw,34px); font-weight:700; letter-spacing:-0.02em; line-height:1.1; margin-top:2px;}
+.decision .rec-name.none{color:var(--bad); font-size:clamp(18px,2.4vw,24px);}
+.decision .rec-dims{color:var(--muted); font-size:12.5px; margin-top:5px;}
+.vstats{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+.vstats:empty{display:none;}
+.vstat{background:var(--surface2); border:1px solid var(--line2); border-radius:9px; padding:7px 12px; min-width:82px;}
+.vstat .n{font-size:17px; font-weight:600;}
+.vstat .l{font-size:10px; color:var(--faint); font-weight:600; letter-spacing:.05em; text-transform:uppercase; margin-top:1px;}
+.vstat .n.warn{color:var(--warn);}
+/* notes: warnings first, unmissable; asks in accent; info muted */
+.notes{display:flex; flex-direction:column; gap:5px; margin-top:12px;}
+.notes:empty{display:none;}
+.note{display:flex; gap:9px; align-items:flex-start; font-size:13px; line-height:1.5; padding:7px 11px; border-radius:8px;}
+.note svg{width:14px; height:14px; flex-shrink:0; margin-top:2.5px;}
+.note.stop{background:var(--bad-soft); color:var(--bad); font-weight:600;}
+.note.warn{background:var(--warn-soft); color:var(--warn); font-weight:500;}
+.note.ask{background:var(--accent-soft); color:var(--accent-ink); font-weight:600;}
+.note.info{color:var(--muted); padding-top:3px; padding-bottom:3px;}
+
+/* vehicle rail + bay layout */
+.stage{display:grid; grid-template-columns:212px 1fr; gap:18px; align-items:start;}
+@media (max-width:820px){ .stage{grid-template-columns:1fr;} }
+.rail{display:flex; flex-direction:column; gap:6px;}
+.vrow{
+  display:grid; grid-template-columns:1fr auto; gap:0 8px; align-items:center;
+  text-align:left; width:100%; cursor:pointer;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+  padding:8px 11px; font:inherit; color:inherit;
+  transition:border-color .15s ease;
+}
+.vrow:hover{border-color:var(--faint);}
+.vrow:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.vrow[aria-pressed="true"]{border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent);}
+.vrow .nm{font-weight:600; font-size:13.5px;}
+.vrow .dims{color:var(--faint); font-size:10.5px;}
+.vrow .chip{grid-row:span 2; font-size:10.5px; font-weight:700; letter-spacing:.04em; border-radius:5px; padding:3px 7px; white-space:nowrap;}
+.chip.fit{color:var(--good); background:var(--good-soft);}
+.chip.nofit{color:var(--bad); background:var(--bad-soft);}
+.chip.idle{color:var(--faint); background:var(--surface2);}
+
+/* the bay */
+.bay-wrap{position:relative; border-radius:14px; overflow:hidden; border:1px solid var(--bay-line); background:var(--bay); min-height:430px;}
+#bay{display:block; width:100%; height:520px; touch-action:none;}
+.bay-hud{position:absolute; top:12px; left:14px; right:14px; display:flex; justify-content:space-between; gap:10px; pointer-events:none;}
+.hud-stamp{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600; letter-spacing:.06em; color:#B9C4CE;}
+.hud-stamp .ok{color:#6FD9A3;} .hud-stamp .no{color:#F09480;}
+.bay-views{position:absolute; bottom:12px; left:14px; display:flex; gap:6px;}
+.bay-views button{
+  border:1px solid #333D48; background:#1B222B; color:#9AA7B4; cursor:pointer;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; letter-spacing:.05em;
+  border-radius:7px; padding:6px 11px; transition:color .15s ease, border-color .15s ease;
+}
+.bay-views button:hover{color:#E4EAF0;}
+.bay-views button[aria-pressed="true"]{color:#0F1216; background:#C8D2DB; border-color:#C8D2DB;}
+.bay-views button:focus-visible{outline:2px solid var(--accent);}
+.bay-legend{position:absolute; bottom:12px; right:14px; display:flex; gap:12px; font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:#8794A1; pointer-events:none;}
+.bay-legend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px;}
+.bay-tip{
+  position:absolute; pointer-events:none; z-index:3;
+  background:#1B222Bee; border:1px solid #333D48; border-radius:7px; padding:6px 10px;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.5; color:#C8D2DB;
+  white-space:nowrap;
+}
+.unplaced{
+  position:absolute; top:40px; left:14px; max-width:320px; pointer-events:none;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; line-height:1.6; color:#F09480;
+  white-space:pre-line;
+}
+.footnote{max-width:1420px; margin:14px auto 0; color:var(--faint); font-size:11.5px; line-height:1.55;}
+
+/* ---- staff sign-in gate ---- */
+#authGate{
+  position:fixed; inset:0; z-index:60; background:var(--bg);
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.auth-card{
+  background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  padding:28px; width:min(360px,100%);
+}
+.auth-card h1{font-size:24px; margin-bottom:2px;}
+.auth-card .sub{margin-bottom:18px;}
+.auth-card label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+.auth-card input{
+  width:100%; font:inherit; font-size:14px; color:var(--ink);
+  background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;
+}
+.auth-card input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
+.auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
+.whoami{display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:4px; font-size:11.5px; color:var(--faint);}
+.whoami button{
+  border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:11.5px; text-decoration:underline;
+}
+.whoami button:hover{color:var(--ink);}
+.ai-note{color:var(--good);}
+</style>
+</head>
+<body>
+
+<div id="authGate">
+  <form class="auth-card" id="authForm">
+    <h1>Load Lab</h1>
+    <div class="sub">Cal staff sign-in — same login as the toolkit.</div>
+    <label for="authEmail">Email</label>
+    <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery" required>
+    <label for="authPass">Password</label>
+    <input id="authPass" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+    <div class="auth-err" id="authErr"></div>
+  </form>
+</div>
+
+<header>
+  <div>
+    <h1>Load Lab</h1>
+    <div class="sub">Vehicle size selector — paste the customer's email, check the parsed freight, and the smallest vehicle it genuinely fits goes green. Walls are walls: no leeway is ever added.</div>
+  </div>
+  <div class="hdr-note">Vehicle guide: Cal North fleet, internal load space (cm)<br>Fit rule: strict — a 121&nbsp;cm pallet does not go in a 120&nbsp;cm gap
+    <div class="whoami"><span id="whoami"></span><button type="button" id="signOut" hidden>sign out</button></div>
+  </div>
+</header>
+
+<div class="lab">
+  <!-- ============ LEFT: input ============ -->
+  <div class="col-left">
+    <section class="panel">
+      <h2>1 · Paste the email</h2>
+      <div class="hint">Freight lines straight from the customer — quantities, sizes, weights in any format.</div>
+      <textarea id="emailBox" spellcheck="false" style="min-height:104px;" placeholder="e.g.&#10;4 pallets 1200 x 1000 x 1800mm, 380kg each&#10;2 boxes 800 x 600 x 500&#10;10 lengths of rail @ 4.2m"></textarea>
+      <div class="paste-row">
+        <button class="primary" id="btnParse">Read email</button>
+        <select class="ghost" id="samples">
+          <option value="">Examples…</option>
+          <option value="s1">Panels + boxes + rails</option>
+          <option value="s2">Two standard pallets</option>
+          <option value="s3">Crate + cartons + steel bars</option>
+          <option value="s4">Heavy 2m steel length</option>
+          <option value="s5">Fragile lamps + no-stack pallets</option>
+          <option value="s6">ADR batteries — split-load size</option>
+        </select>
+        <button class="ghost" id="btnClear">Clear</button>
+      </div>
+      <div class="parse-notes" id="parseNotes"></div>
+    </section>
+
+    <section class="panel">
+      <div class="items-head">
+        <h2>2 · Check the freight <span id="itemCount" class="mono" style="color:var(--faint); font-weight:500;"></span></h2>
+        <span class="hint" style="margin:0;">amber = guessed, fix before quoting</span>
+      </div>
+      <div class="fhead"><span>Qty</span><span>Type</span><span>L×W×H cm</span><span>kg ea.</span><span></span></div>
+      <div id="itemsBody"></div>
+      <div class="empty-note" id="emptyNote">No freight yet — paste an email above or add items below.</div>
+      <div class="add-row">
+        <button class="ghost" data-add="pallet">+ Pallet</button>
+        <button class="ghost" data-add="euro">+ Euro pallet</button>
+        <button class="ghost" data-add="box">+ Box</button>
+        <button class="ghost" data-add="length">+ Lengths</button>
+      </div>
+    </section>
+
+    <section class="panel" id="loadingPanel">
+      <h2>3 · How is it loaded?</h2>
+      <div class="hint">Decides the body type as much as the sizes do — forklift, tail lift or by hand.</div>
+      <div class="chips" id="loadChips">
+        <button data-m="unsure" aria-pressed="true">Not sure yet</button>
+        <button data-m="forklift" aria-pressed="false">Forklift</button>
+        <button data-m="extforks" aria-pressed="false">Forklift + ext. forks</button>
+        <button data-m="taillift" aria-pressed="false">Tail lift needed</button>
+        <button data-m="handball" aria-pressed="false">Handball</button>
+        <button data-m="dock" aria-pressed="false">Loading dock</button>
+        <button data-m="hiab" aria-pressed="false">Hiab / crane</button>
+      </div>
+      <details class="knowref">
+        <summary>Fleet loading knowledge — tail lifts, curtains, handball limits</summary>
+        <table>
+          <thead><tr><th>Vehicle</th><th>Tail lift</th><th>Platform</th><th>Body options</th></tr></thead>
+          <tbody id="knowBody"></tbody>
+        </table>
+        <div class="src">
+          Handball: ~25 kg one person, ~50 kg two people (HSE guideline figures, good conditions).
+          Forklift through the back doors: pieces up to ~2 m; extended forks stretch that to ~2.4 m; longer than that is a side-load through the curtain — curtain-side bodies exist from Luton up to Artic, nothing smaller.
+          Tail-lift jobs: hard level ground, freight on a pump-truckable pallet, and it must fit on the platform — long lengths can't ride a tail lift.
+          Typical ratings from UK hire fleets and TPN's vehicle &amp; tail-lift delivery guide; check the actual vehicle when it matters.
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <!-- ============ RIGHT: verdict + bay ============ -->
+  <div class="col-right">
+    <section class="panel decision" id="verdictPanel">
+      <div class="d-top">
+        <div>
+          <div class="rec-label">Smallest vehicle that fits</div>
+          <div class="rec-name" id="recName">—</div>
+          <div class="rec-dims mono" id="recDims"></div>
+        </div>
+        <button class="ghost" id="copyPlan" disabled title="Copy a booking-note-ready load plan">Copy load plan</button>
+      </div>
+      <div class="notes" id="notes"></div>
+      <div class="vstats" id="vstats"></div>
+    </section>
+
+    <div class="stage">
+      <nav class="rail" id="rail" aria-label="Vehicles"></nav>
+      <div class="bay-wrap">
+        <canvas id="bay"></canvas>
+        <div class="bay-hud"><div class="hud-stamp" id="hudStamp"></div></div>
+        <div class="unplaced" id="unplacedNote"></div>
+        <div class="bay-views" id="bayViews">
+          <button data-view="orbit" aria-pressed="true">3D</button>
+          <button data-view="top" aria-pressed="false">TOP</button>
+          <button data-view="side" aria-pressed="false">SIDE</button>
+          <button data-view="rear" aria-pressed="false">REAR</button>
+        </div>
+        <div class="bay-legend">
+          <span><i style="background:#C8873F"></i>pallet</span>
+          <span><i style="background:#5B8DEF"></i>box</span>
+          <span><i style="background:#9AA7B4"></i>length</span>
+        </div>
+        <div class="bay-tip" id="bayTip" hidden></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="footnote">
+  Loading model: pallets and boxes are floor-loaded in rows front-to-back with strict wall-to-wall arithmetic; several row layouts are tried — including pallets nose-to-tail leaving a floor corridor — and the plan that keeps lengths flat on the deck wins.
+  Pallets double-stack on stackable pallet tops when the floor runs out (flagged for confirmation); boxes overflow onto stackable freight only; boxes and lengths marked "tip" may lie on their side; lengths ride on top only where stackable freight of full height runs underneath them for their whole length — nothing is ever left floating, and nothing loads diagonally.
+  The packer is deliberately conservative: if it says Fits, a driver can load it that way; a tighter hand-load might squeeze into less, but it will never suggest a vehicle the freight cannot physically enter.
+  Payload and internal dimensions from the Cal vehicle size guide.
+</p>
+
+<script>
+"use strict";
+/* ================= staff auth (cal-toolkit Supabase) ================= */
+const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
+const SB_KEY = "sb_publishable_opNVNmCxE0yM2vYUkHmOhw_dzOxDQw5";
+const FN_URL = SB_URL + "/functions/v1/parse-freight";
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+let sbSession = null;
+
+function setSession(s){
+  sbSession = s;
+  document.getElementById("authGate").style.display = s ? "none" : "flex";
+  document.getElementById("whoami").textContent = s ? s.user.email : "";
+  document.getElementById("signOut").hidden = !s;
+}
+sb.auth.getSession().then(({data:{session}})=>setSession(session));
+sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+
+document.getElementById("authForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = document.getElementById("authErr");
+  err.textContent = "";
+  const { error } = await sb.auth.signInWithPassword({
+    email: document.getElementById("authEmail").value.trim(),
+    password: document.getElementById("authPass").value,
+  });
+  if(error) err.textContent = "Sign-in failed — check the email and password.";
+});
+document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
+
+/* ================= VEHICLES (internal load space, cm) =================
+   tail: typical tail-lift rating kg (0 = no tail lift on this body)
+   tailDepth: usable tail-lift platform depth cm — longer pieces can't ride the lift
+   curtain: curtain-side body available at this size (side loading possible) */
+/* Body attributes combine: a Luton/7.5T/18T/Artic can be box OR curtain-side, and
+   either can carry a tail lift. The lift is an option, not a separate vehicle —
+   on the Luton it costs payload and a pallet (guide: 1000 kg/6 pal → 800 kg/5 pal). */
+const VEHICLES = [
+  {id:"small", name:"Small Van", L:150,  W:100, H:100, payload:400,   pallets:1,  tail:0,    tailDepth:0,   curtain:false, bodies:"van"},
+  {id:"swb",   name:"SWB",       L:240,  W:130, H:130, payload:800,   pallets:2,  tail:0,    tailDepth:0,   curtain:false, bodies:"van"},
+  {id:"lwb",   name:"LWB",       L:320,  W:130, H:170, payload:1200,  pallets:3,  tail:0,    tailDepth:0,   curtain:false, bodies:"van"},
+  {id:"xlwb",  name:"XLWB",      L:420,  W:130, H:180, payload:1100,  pallets:4,  tail:0,    tailDepth:0,   curtain:false, bodies:"van"},
+  {id:"luton", name:"Luton",     L:400,  W:200, H:200, payload:1000,  pallets:6,  tail:500,  tailDepth:160, tailPayload:800, tailPallets:5, curtain:true, bodies:"box · curtain · tail lift (800 kg / 5 pal with lift)"},
+  {id:"75t",   name:"7.5T",      L:600,  W:240, H:230, payload:2500,  pallets:10, tail:750,  tailDepth:200, curtain:true,  bodies:"box · curtain · tail lift"},
+  {id:"18t",   name:"18T",       L:700,  W:240, H:240, payload:9000,  pallets:14, tail:1000, tailDepth:220, curtain:true,  bodies:"box · curtain · tail lift"},
+  {id:"artic", name:"Artic",     L:1320, W:250, H:260, payload:26000, pallets:26, tail:1500, tailDepth:240, curtain:true,  bodies:"box · curtain · tail lift"},
+];
+/* verdicts name the body spec the way the DM logs do: "Luton Curtain", "7.5T Tail",
+   or both — "Luton Curtain + Tail" */
+function bodyName(v, reqs){
+  if(!reqs) return v.name;
+  const parts = [];
+  if(reqs.needCurtain && v.curtain) parts.push("Curtain");
+  if(reqs.needTail && v.tail) parts.push("Tail");
+  return parts.length ? v.name + " " + parts.join(" + ") : v.name;
+}
+
+/* ================= LOADING KNOWLEDGE =================
+   HSE manual-handling guidance: ~25 kg solo under good conditions; two-person
+   practical ceiling ~50 kg. Standard forks: rear-door loading of long freight tops
+   out ~2 m; extended/telescopic forks stretch that to ~2.4 m; beyond that it's a
+   side-load through the curtain. Tail-lift freight must sit on the platform and be
+   pump-truckable on hard level ground. */
+const HANDLING = {
+  soloKg:25,          // one person, good conditions (HSE guideline)
+  twoManKg:50,        // practical two-person ceiling
+  rearForkLen:200,    // longest piece a forklift can put through the back doors
+  extForkLen:240,     // …with extended forks
+  pumpTruckKg:2000,   // hand pump truck limit (flat hard ground)
+};
+
+const TYPE_DEFAULTS = {
+  pallet:{L:120,W:100,H:100,w:0},
+  euro:  {L:120,W:80, H:100,w:0},
+  box:   {L:60, W:40, H:40, w:0},
+  length:{L:300,W:10, H:10, w:0},
+  crate: {L:120,W:100,H:100,w:0},
+};
+const KIND_OF = {pallet:"pallet", euro:"pallet", crate:"pallet", box:"box", length:"length"};
+
+let items = [];      // {id, qty, type, L, W, H, w, assumed:[]}
+let uid = 1;
+let selVehicle = null;   // id of vehicle shown in bay (null = recommended)
+let results = [];        // pack results per vehicle
+let noteText = "";
+
+/* ================= PARSER ================= */
+const NUM = "(\\d+(?:[.,]\\d+)?)";
+const SEP = "\\s*(?:x|×|by|\\*)\\s*";
+const OPTU = "\\s*(mm|cm|m\\b|mtr\\b|metres?|meters?)?";   // unit may follow every number
+const RE_DIM3 = new RegExp(NUM + OPTU + SEP + NUM + OPTU + SEP + NUM + OPTU, "i");
+const RE_DIM2 = new RegExp(NUM + OPTU + SEP + NUM + OPTU, "i");
+const RE_WT   = /(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|t\b|tonnes?|tons?)/i;
+const RE_LEN  = /(\d+(?:[.,]\d+)?)\s*(m\b|mm|cm|mtr|metres?|meters?)\s*(?:long|lengths?)?/i;
+
+function toNum(s){
+  s = String(s).replace(/,(?=\d{3}\b)/g, "");   // "1,000" is a thousand, not one-point-zero
+  return parseFloat(s.replace(",", "."));
+}
+function unitToCm(v, unit){
+  if(!unit) return null;
+  unit = unit.toLowerCase();
+  if(unit.startsWith("mm")) return v/10;
+  if(unit.startsWith("cm")) return v;
+  return v*100; // m / mtr / metre
+}
+function inferCm(vals){
+  // no unit given: >=250 → mm, all <=15 → m, else cm
+  if(vals.some(v => v >= 250)) return vals.map(v => v/10);
+  if(vals.every(v => v <= 15)) return vals.map(v => v*100);
+  return vals.slice();
+}
+function typeFromWords(line){
+  const l = line.toLowerCase();
+  if(/euro\s*pallet/.test(l)) return "euro";
+  if(/pallet|skid/.test(l)) return "pallet";
+  if(/crate|stillage|cage/.test(l)) return "crate";
+  if(/length|tube|pipe|bar\b|bars\b|beam|rail|profile|extrusion|conduit|timber|steels?\b|rod/.test(l)) return "length";
+  if(/box|carton|case|parcel|package|tote|drum|reel|bag|sack|unit/.test(l)) return "box";
+  return null;
+}
+function parseEmail(text){
+  const out = [];
+  const notes = [];
+  let totalWeight = null;
+  const lines = text.split(/\n|(?<=\d)\s*[;•]\s*|,\s*(?=\d+\s*(?:x|×)\s)/i)
+    .flatMap(s => s.split(/\s+(?:[&+]|and|plus)\s+(?=\d)/i))   // "3 pallets and 5m length" → two freight lines
+    .map(s=>s.trim()).filter(Boolean);
+  for(let rawLine of lines){
+    // "#3 - 271cm x…" — a piece label, not a quantity; "120w x 100d x 174h" — strip letter suffixes
+    const line = rawLine
+      .replace(/^\s*#\s*\d+\s*[-–—:.)]*\s*/, "")
+      .replace(/(\d(?:\.\d+)?)\s*[lwdh](?=\s*$|\s*[x×*])/gi, "$1");
+    const l = line.toLowerCase();
+    // total-weight line with no items ("total weight 900kg", "maximum weight > 1,000kg")
+    if(/total|max(?:imum)?\s*weight|combined/.test(l) && RE_WT.test(l) && !RE_DIM2.test(l) && !typeFromWords(l)){
+      const m = l.match(RE_WT);
+      let w = toNum(m[1]);
+      if(m[2][0] === "t") w *= 1000;
+      totalWeight = (totalWeight||0) + w;
+      continue;
+    }
+    const type = typeFromWords(line);
+    const last = out[out.length-1];
+    // continuation lines: bare dims ("Dims: 177 x 157 x 92cm") or bare weight ("Weight: 528kg")
+    // belong to the item on the line above — and never start a new item of their own
+    if(!type){
+      const dimOnly = l.match(new RegExp("^\\s*(?:dims?|size)?[:\\s]*" + NUM + OPTU + SEP + NUM + OPTU + "(?:" + SEP + NUM + OPTU + ")?\\s*(?:each)?\\s*$", "i"));
+      if(dimOnly){
+        if(last && (last.nd || last.af.L || last.af.W)){
+          const vals = [toNum(dimOnly[1]), toNum(dimOnly[3]), dimOnly[5] ? toNum(dimOnly[5]) : null].filter(x=>x!==null);
+          const unit = dimOnly[6] || dimOnly[4] || dimOnly[2];
+          const raw = unit ? vals.map(x=>unitToCm(x, unit)) : inferCm(vals);
+          last.L = Math.round(raw[0]*10)/10; delete last.af.L;
+          last.W = Math.round(raw[1]*10)/10; delete last.af.W;
+          if(raw.length > 2){ last.H = Math.round(raw[2]*10)/10; delete last.af.H; }
+          delete last.nd;
+        }
+        continue;
+      }
+      const wtOnly = l.match(/^\s*(?:weight|wt|gw)?[:\s>~]*(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|t|tonnes?)\s*(?:total|gw|each)?\s*$/i);
+      if(wtOnly){
+        if(last && last.af.w){
+          let w = toNum(wtOnly[1]);
+          if(wtOnly[2][0].toLowerCase() === "t") w *= 1000;
+          if(!/each/.test(l) && last.qty > 1) w = w/last.qty;   // a lone weight line reads as the total
+          last.w = Math.round(w*10)/10; delete last.af.w;
+        }
+        continue;
+      }
+    }
+    // qty: "4 pallets" wins over anything, then "4 x …" at line start, then trailing "x4".
+    // Never let a dimension number (e.g. "800 x 600") be read as a quantity.
+    let qty = null;
+    let mq = l.match(/(?:^|\s)(\d{1,3})\s+(?:x\s+)?(?:euro\s+|std\s+|standard\s+|full\s+|half\s+|small\s+|large\s+|heavy\s+|wooden\s+|steel\s+|mixed\s+)*(?:pallets?|boxes?|cartons?|cases?|crates?|lengths?|tubes?|pipes?|bars?|beams?|rails?|parcels?|packages?|drums?|reels?|bags?|sacks?|units?|skids?|stillages?|cages?|totes?)\b/);
+    if(!mq) mq = l.match(/^\s*(\d{1,3})\s*(?:x|×)\s/);
+    if(!mq) mq = l.match(/(?:x|×)\s*(\d{1,3})\s*$/);
+    if(mq) qty = parseInt(mq[1], 10);
+    if(!type && qty === null && !RE_DIM3.test(l)) continue;   // not a freight line — but a bare L×W×H is one
+    if(!type && !RE_DIM2.test(l)) continue;
+
+    const item = {id:uid++, qty:qty||1, type:type||"box", assumed:[], af:{}};
+    const d = TYPE_DEFAULTS[item.type] || TYPE_DEFAULTS.box;
+    item.L=d.L; item.W=d.W; item.H=d.H; item.w=d.w;
+
+    // dimensions
+    let m3 = line.match(RE_DIM3);
+    if(m3){
+      // customer order is taken as L × W × H; unit may sit after any number ("2.4m x 1.2m x 1m")
+      const vals = [toNum(m3[1]), toNum(m3[3]), toNum(m3[5])];
+      const unit = m3[6] || m3[4] || m3[2];
+      const raw = unit ? vals.map(x=>unitToCm(x, unit)) : inferCm(vals);
+      item.L = Math.round(raw[0]*10)/10; item.W = Math.round(raw[1]*10)/10; item.H = Math.round(raw[2]*10)/10;
+      // no type word given: big pieces read as crates (floor-load, never tipped), small as boxes
+      if(!type && Math.max(item.L, item.W, item.H) >= 150) item.type = "crate";
+    } else {
+      const m2 = line.match(RE_DIM2);
+      if(m2 && item.type !== "length"){
+        const vals = [toNum(m2[1]), toNum(m2[3])];
+        const unit = m2[4] || m2[2];
+        const raw = unit ? vals.map(x=>unitToCm(x, unit)) : inferCm(vals);
+        item.L = Math.round(raw[0]*10)/10; item.W = Math.round(raw[1]*10)/10;
+        item.af.H = true;
+      } else if(item.type === "length"){
+        // find a single length like "4.2m" (avoid the qty number)
+        const cleaned = line.replace(/(?:^|\s)\d{1,3}\s*(?:x|×)\s/,' ');
+        const ml = cleaned.match(RE_LEN);
+        if(ml){ item.L = Math.round(unitToCm(toNum(ml[1]), ml[2])*10)/10; }
+        else item.af.L = true;
+        item.af.W = true; item.af.H = true;      // cross-section is a guess
+      } else if(item.type === "pallet" || item.type === "euro" || item.type === "crate"){
+        item.af.H = true;                         // footprint is standard; height is a guess
+        item.nd = true;                           // no dims of its own — a following dims line may claim it
+      } else {
+        item.af.L = true; item.af.W = true; item.af.H = true;
+      }
+    }
+    // "1.2m tall / 1800mm high" — explicit height wins over the default
+    const mh = line.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m\b|mtr)\s*(?:tall|high|height)/i);
+    if(mh){
+      item.H = Math.round(unitToCm(toNum(mh[1]), mh[2])*10)/10;
+      delete item.af.H;
+    }
+    // weight
+    const mw = line.match(RE_WT);
+    if(mw){
+      let w = toNum(mw[1]);
+      if(mw[2][0].toLowerCase() === "t") w *= 1000;
+      if(/total|all\s*in|combined|overall/.test(l) && item.qty > 1){ w = w/item.qty; }
+      else if(!/each|per\b|apiece|\/(?:pallet|box|unit|item)/.test(l) && item.qty > 1){
+        // "2 pallets - 800kg" with no "each": courier convention reads that as the consignment total
+        item.assumed.push(w + " kg read as total — " + Math.round(w/item.qty*10)/10 + " kg each");
+        w = w/item.qty;
+      }
+      item.w = Math.round(w*10)/10;
+    } else {
+      item.af.w = true;
+    }
+    // stacking & orientation rules — assume stackable/tippable unless the email says otherwise
+    item.stack = !/non[- ]?stack|do not stack|don'?t stack|no stacking|nothing (?:on )?top|top load only|fragile/.test(l);
+    const isPallet = KIND_OF[item.type] === "pallet";
+    item.tip = !isPallet && !/this way up|keep (?:it )?upright|upright only|do not (?:tip|lay|turn)|must (?:stay|remain) upright|stood up/.test(l);
+    out.push(item);
+  }
+  // dangerous goods sweep over the whole email — Cal ships batteries and worse
+  const adr = /\badr\b|dangerous goods|hazardous|hazmat|un\s?\d{4}|lithium|flammable|corrosive|explosive|oxidis|limited quantit|\bdgn\b|class\s?[1-9]\s?(?:dangerous|goods|packing)/i.test(text);
+  // stated loading requirements — "tail lift required", "must be curtain side"
+  const wantsTail = /tail\s*-?\s*lift|taillift|t\/lift|\bt\/l\b/i.test(text);
+  const wantsCurtain = /curtain\s*-?\s*side|curtainside|curtain\s+required|must be curtain/i.test(text);
+  return {items:out, totalWeight, notes, adr, wantsTail, wantsCurtain};
+}
+
+/* ================= STRICT PACKER =================
+   All comparisons exact. Coordinates: x across width, z along length, y up. */
+function orientations(u){
+  const tip = u.item && u.item.tip !== false;
+  if(u.kind === "length"){                                          // lengths lie along the vehicle
+    if(!tip || u.W === u.H) return [{w:u.W, d:u.L, h:u.H}];
+    return [{w:u.W, d:u.L, h:u.H}, {w:u.H, d:u.L, h:u.W}];          // roll onto its side
+  }
+  if(u.kind === "pallet" || !tip){                                  // pallets never tip; boxes marked "this way up" stay upright
+    if(u.L === u.W) return [{w:u.W, d:u.L, h:u.H}];
+    return [{w:u.W, d:u.L, h:u.H}, {w:u.L, d:u.W, h:u.H}];
+  }
+  const dims = [u.L, u.W, u.H], seen = new Set(), out = [];
+  for(let hi=0; hi<3; hi++) for(let wi=0; wi<3; wi++){
+    if(wi === hi) continue;
+    const di = 3 - hi - wi;
+    const k = dims[wi] + "," + dims[di] + "," + dims[hi];
+    if(!seen.has(k)){ seen.add(k); out.push({w:dims[wi], d:dims[di], h:dims[hi]}); }
+  }
+  return out;
+}
+/* partial=true → best-effort load: oversized/over-payload units land in `unplaced`
+   instead of failing the vehicle. Used by the split-load suggester. */
+function packVehicle(v, itemList, totalWeightOverride, reqs, partial){
+  const placements = [], reasons = [], unplaced = [];
+  // expand to units
+  const units = [];
+  for(const it of itemList){
+    const kind = KIND_OF[it.type] || "box";
+    for(let i=0; i<it.qty; i++)
+      units.push({item:it, kind, L:it.L, W:it.W, H:it.H, wt:it.w||0});
+  }
+  if(!units.length) return {ok:false, reasons:["no freight"], placements, unplaced, stats:null};
+
+  // payload — a fitted tail lift eats into it (Luton: 1000 → 800 kg)
+  const needTail = !!(reqs && reqs.needTail);
+  const effPayload = needTail && v.tailPayload ? v.tailPayload : v.payload;
+  const effPallets = needTail && v.tailPallets ? v.tailPallets : v.pallets;
+  let weight = units.reduce((s,u)=>s+u.wt, 0);
+  if(totalWeightOverride && totalWeightOverride > weight) weight = totalWeightOverride;
+  if(!partial && weight > effPayload) reasons.push("over payload — " + Math.round(weight) + " kg > " + effPayload + " kg" + (needTail && v.tailPayload ? " with the tail lift fitted" : ""));
+
+  // loading requirements — a body that can't be loaded is as useless as one that's too small
+  if(reqs){
+    if(reqs.needTail){
+      if(!v.tail) reasons.push("no tail lift on this body");
+      else {
+        if(reqs.maxPieceKg > v.tail) reasons.push("tail lift takes ~" + v.tail + " kg — heaviest piece is " + Math.round(reqs.maxPieceKg) + " kg");
+        if(reqs.maxPieceLen > v.tailDepth) reasons.push("longest piece (" + Math.round(reqs.maxPieceLen) + " cm) won't sit on the tail-lift platform (~" + v.tailDepth + " cm)");
+      }
+    }
+    if(reqs.needCurtain && !v.curtain) reasons.push("side loading needed — no curtain-side body at this size");
+  }
+
+  // absolute size check — in partial mode oversized units just become remainder
+  const okUnits = [], preUnplaced = [];
+  for(const u of units){
+    const fitsAny = orientations(u).some(o => o.w <= v.W && o.d <= v.L && o.h <= v.H);
+    if(fitsAny){ okUnits.push(u); continue; }
+    if(partial){ preUnplaced.push(u); continue; }
+    reasons.push(u.item.qty > 1 ? "an item is too big for the body" :
+      "item too big — " + u.L + "×" + u.W + "×" + u.H + " cm won't go in " + v.L + "×" + v.W + "×" + v.H);
+    return {ok:false, reasons, placements, unplaced:units, stats:null};
+  }
+
+  /* the vehicle's pallet rating caps FLOOR positions only — it's a floor-space
+     rating, so a pallet double-stacked on another consumes no rated position.
+     The cap is enforced during packing (see floorPalletCount in attempt). */
+
+  /* multi-drop: LIFO loading — later drops go in first (deepest), drop 1 ends up by the doors */
+  const floorUnits = okUnits.filter(u=>u.kind!=="length")
+    .sort((a,b)=> (b.item.drop||1)-(a.item.drop||1) || (b.kind==="pallet")-(a.kind==="pallet") || b.L*b.W - a.L*a.W || b.H - a.H);
+  const lenUnits = okUnits.filter(u=>u.kind==="length").sort((a,b)=>b.L-a.L);
+
+  const stackOK = u => u.item.stack !== false;   // "stackable" = other freight may sit on top of it
+
+  /* ---- one complete loading attempt: floor rows → boxes on top → lengths.
+     Strategies for opening a new floor row:
+       "cols"     — orientation that fits the most units side-by-side across the width
+       "depth"    — orientation with the smallest row depth
+       "corridor" — single-file, narrowest orientation: pallets nose-to-tail leaving a
+                    floor corridor down the side so lengths can lie flat on the deck
+     All three run; the winner is the one that places everything with the fewest
+     lengths riding on top (floor always beats floating). */
+  function attempt(strategy){
+    const rows = [], placements = [], surfaces = [], overflow = [], overflowPallets = [], unplaced = [];
+    let usedLen = 0, wsum = 0, floorPalletCount = 0, stackedPallets = 0;
+    const canTake = u => !partial || (wsum + u.wt <= effPayload);
+    const addSurface = (u,x,z,w,d,y) => { if(stackOK(u)) surfaces.push({x,z,w,d,y,xUsed:0, baseKind:u.kind}); };
+    for(const u of floorUnits){
+      if(!canTake(u)){ unplaced.push({u, why:"over payload"}); continue; }
+      if(u.item.type === "pallet" && floorPalletCount >= effPallets){ overflowPallets.push(u); continue; }
+      let placed = false;
+      if(strategy !== "corridor"){
+        for(const row of rows){
+          for(const o of orientations(u)){
+            if(o.h <= v.H && o.d <= row.depth && row.xUsed + o.w <= v.W){
+              placements.push({u, x:row.xUsed, z:row.z0, y:0, w:o.w, d:o.d, h:o.h});
+              addSurface(u, row.xUsed, row.z0, o.w, o.d, o.h);
+              row.xUsed += o.w;
+              placed = true; break;
+            }
+          }
+          if(placed) break;
+        }
+      }
+      if(placed){ wsum += u.wt; if(u.item.type === "pallet") floorPalletCount++; continue; }
+      let best = null;
+      for(const o of orientations(u)){
+        if(o.h > v.H || o.w > v.W || usedLen + o.d > v.L) continue;
+        if(!best){ best = o; continue; }
+        if(strategy === "cols"){
+          const cb = Math.floor(v.W/best.w), co = Math.floor(v.W/o.w);
+          if(co > cb || (co === cb && o.d < best.d)) best = o;
+        } else if(strategy === "corridor"){
+          if(o.w < best.w || (o.w === best.w && o.d < best.d)) best = o;
+        } else if(o.d < best.d) best = o;
+      }
+      if(best){
+        const row = {z0:usedLen, depth:best.d, xUsed:best.w};
+        rows.push(row);
+        placements.push({u, x:0, z:row.z0, y:0, w:best.w, d:best.d, h:best.h});
+        addSurface(u, 0, row.z0, best.w, best.d, best.h);
+        usedLen += best.d;
+        wsum += u.wt;
+        if(u.item.type === "pallet") floorPalletCount++;
+      } else if(u.kind === "box") overflow.push(u);
+      else overflowPallets.push(u);
+    }
+    /* pallets double-stack on stackable pallet tops when the floor is out of
+       room or rated positions — whole top only, never on boxes, strict height */
+    for(const u of overflowPallets){
+      if(!canTake(u)){ unplaced.push({u, why:"over payload"}); continue; }
+      let placed = false;
+      for(const s of surfaces){
+        if(s.baseKind !== "pallet" || s.xUsed > 0) continue;
+        for(const o of orientations(u)){
+          if(o.w <= s.w && o.d <= s.d && s.y + o.h <= v.H){
+            placements.push({u, x:s.x, z:s.z, y:s.y, w:o.w, d:o.d, h:o.h});
+            addSurface(u, s.x, s.z, o.w, o.d, s.y + o.h);
+            s.xUsed = s.w;              // this top is taken
+            placed = true; break;
+          }
+        }
+        if(placed) break;
+      }
+      if(placed){ wsum += u.wt; stackedPallets++; }
+      else unplaced.push({u, why:"pallets don't all fit — floor is full and no stackable pallet top has the height"});
+    }
+    /* boxes on top — only ever on freight marked stackable */
+    for(const u of overflow){
+      if(!canTake(u)){ unplaced.push({u, why:"over payload"}); continue; }
+      let placed = false;
+      for(const s of surfaces){
+        for(const o of orientations(u)){
+          if(s.xUsed + o.w <= s.w && o.d <= s.d && s.y + o.h <= v.H){
+            placements.push({u, x:s.x + s.xUsed, z:s.z, y:s.y, w:o.w, d:o.d, h:o.h});
+            addSurface(u, s.x + s.xUsed, s.z, o.w, o.d, s.y + o.h);
+            s.xUsed += o.w;
+            placed = true; break;
+          }
+        }
+        if(placed) break;
+      }
+      if(placed) wsum += u.wt;
+      else unplaced.push({u, why:"no room left for all boxes — floor is full and nothing stackable is free"});
+    }
+    /* lengths: floor first (side corridor, rear gap), then a SUPPORTED raft on top.
+       Support rule: a length may only ride on top if stackable freight of full height
+       runs underneath it from the front for its whole length — nothing floats on air. */
+    const maxRowWidth = rows.length ? Math.max(...rows.map(r=>r.xUsed)) : 0;
+    const sideW = v.W - maxRowWidth;
+    const rearZ = usedLen, rearL = v.L - usedLen;
+    let raftY = 0, supportRun = 0;
+    if(rows.length){
+      const rowTop    = r => Math.max(0, ...placements.filter(p=>p.z===r.z0).map(p=>p.y+p.h));
+      const rowSupTop = r => Math.max(0, ...placements.filter(p=>p.z===r.z0 && stackOK(p.u)).map(p=>p.y+p.h));
+      raftY = Math.max(...rows.map(rowTop));
+      for(const r of rows){
+        if(rowTop(r) === raftY && rowSupTop(r) === raftY) supportRun += r.depth;
+        else break;
+      }
+    }
+    const side = {x:maxRowWidth, xUsed:0, cols:[]};
+    const rear = {xUsed:0, zUsed:0};
+    const top  = {xUsed:0, layerY:raftY, layerH:0};
+    let raftCount = 0;
+    for(const u of lenUnits){
+      if(!canTake(u)){ unplaced.push({u, why:"over payload"}); continue; }
+      let placed = false;
+      for(const o of orientations(u)){
+        // 1. side corridor: spread across the floor first, only stack once the deck is full
+        if(o.d <= v.L && o.w <= sideW){
+          let col = null;
+          if(side.xUsed + o.w <= sideW){
+            col = {x:side.x + side.xUsed, w:o.w, h:0, allowStack:true};
+            side.cols.push(col); side.xUsed += o.w;
+          } else {
+            col = side.cols.find(c => c.allowStack && c.h + o.h <= v.H && o.w <= c.w);
+          }
+          if(col){
+            placements.push({u, x:col.x, z:0, y:col.h, w:o.w, d:o.d, h:o.h});
+            col.h += o.h;
+            col.allowStack = col.allowStack && stackOK(u);
+            placed = true; break;
+          }
+        }
+        // 2. rear gap: along the vehicle, side by side across the width…
+        if(o.d <= rearL && rear.xUsed + o.w <= v.W){
+          placements.push({u, x:rear.xUsed, z:rearZ, y:0, w:o.w, d:o.d, h:o.h});
+          rear.xUsed += o.w;
+          placed = true; break;
+        }
+        // …or rotated to lie across the vehicle if it's short enough
+        if(o.d <= v.W && rear.zUsed + o.w <= rearL){
+          placements.push({u, x:0, z:rearZ + rear.zUsed, y:0, w:o.d, d:o.w, h:o.h});
+          rear.zUsed += o.w;
+          placed = true; break;
+        }
+        // 3. raft on top — only over continuous supporting freight
+        if(raftY > 0 && o.d <= supportRun){
+          if(top.xUsed + o.w > v.W){ top.xUsed = 0; top.layerY += top.layerH; top.layerH = 0; }
+          if(top.layerY + o.h <= v.H && top.xUsed + o.w <= v.W){
+            placements.push({u, x:top.xUsed, z:0, y:top.layerY, w:o.w, d:o.d, h:o.h});
+            top.xUsed += o.w; top.layerH = Math.max(top.layerH, o.h);
+            raftCount++;
+            placed = true; break;
+          }
+        }
+      }
+      if(placed) wsum += u.wt;
+      else unplaced.push({u, why:"no safe home for all the lengths — floor is full and there's no supported spot on top"});
+    }
+    return {rows, placements, unplaced, usedLen, raftCount, stackedPallets};
+  }
+
+  const attempts = ["cols","depth","corridor"].map(attempt);
+  attempts.sort((a,b)=> a.unplaced.length - b.unplaced.length || a.raftCount - b.raftCount || a.stackedPallets - b.stackedPallets || a.usedLen - b.usedLen);
+  const bestA = attempts[0];
+  const rows = bestA.rows, usedLen = bestA.usedLen;
+  placements.push(...bestA.placements);
+  for(const x of bestA.unplaced){ reasons.push(x.why); unplaced.push(x.u); }
+  unplaced.push(...preUnplaced);
+
+  const ok = reasons.length === 0 && preUnplaced.length === 0;
+  const floorUsed = rows.reduce((s,r)=>s + r.depth * r.xUsed, 0);
+  // LDM = loading metres: floor length occupied, the groupage pricing metric
+  const maxZ = placements.length ? Math.max(...placements.map(p=>p.z+p.d)) : 0;
+  // centre of gravity along the length (weighted pieces only)
+  const wSum = placements.reduce((s,p)=>s+p.u.wt, 0);
+  const cogZ = wSum > 0 ? placements.reduce((s,p)=>s + p.u.wt*(p.z + p.d/2), 0)/wSum : null;
+  const stats = {
+    weight, payloadPct: Math.round(100*weight/effPayload), effPayload,
+    floorPct: Math.round(100*floorUsed/(v.L*v.W)),
+    lenUsed: Math.round(usedLen), lenFree: Math.round(v.L - usedLen),
+    maxH: Math.round(placements.length ? Math.max(...placements.map(p=>p.y+p.h)) : 0),
+    ldm: Math.round(maxZ/10)/10,
+    stackedPallets: bestA.stackedPallets,
+    cogPct: cogZ === null ? null : Math.round(100*cogZ/v.L),   // % of body length back from the bulkhead
+  };
+  return {ok, reasons:[...new Set(reasons)], placements, unplaced, stats};
+}
+
+/* ================= UI: items table ================= */
+const $ = s => document.querySelector(s);
+const itemsBody = $("#itemsBody");
+function renderItems(){
+  itemsBody.innerHTML = "";
+  $("#emptyNote").style.display = items.length ? "none" : "block";
+  const pieces = items.reduce((s,i)=>s+ +i.qty,0);
+  $("#itemCount").textContent = items.length ? "· " + pieces + (pieces===1 ? " pc" : " pcs") : "";
+  for(const it of items){
+    it.af = it.af || {};
+    const row = document.createElement("div");
+    row.className = "frow";
+    row.dataset.id = it.id;
+    const FIELD_LABELS = {L:"L", W:"W", H:"H", w:"kg"};
+    const chipHtml = () => {
+      const extra = it.assumed.length ? " · " + it.assumed.join(" · ") : "";
+      const flags = Object.keys(it.af).map(k=>FIELD_LABELS[k]).join(" · ");
+      return flags
+        ? `<span class="assume" title="Guessed, not given by the customer${extra}">assumed: ${flags}</span>`
+        : (it.assumed.length ? `<span class="assume" title="${it.assumed.join(" · ")}">${it.assumed.join(" · ")}</span>` : "");
+    };
+    row.innerHTML = `
+      <input class="qty" type="number" autocomplete="off" min="1" step="1" data-f="qty" value="${it.qty}">
+      <select data-f="type" autocomplete="off">
+        ${["pallet","euro","crate","box","length"].map(t=>`<option value="${t}" ${t===it.type?"selected":""}>${t==="euro"?"euro pal":t}</option>`).join("")}
+      </select>
+      <div class="dims3 mono">
+        <input type="number" autocomplete="off" min="1" step="0.5" data-f="L" value="${it.L}" class="${it.af.L?"assumed":""}"><i>×</i><input type="number" autocomplete="off" min="1" step="0.5" data-f="W" value="${it.W}" class="${it.af.W?"assumed":""}"><i>×</i><input type="number" autocomplete="off" min="1" step="0.5" data-f="H" value="${it.H}" class="${it.af.H?"assumed":""}">
+      </div>
+      <input class="wt ${it.af.w?"assumed":""}" type="number" autocomplete="off" min="0" step="1" data-f="w" value="${it.w}">
+      <button class="del" title="Remove" aria-label="Remove item">✕</button>
+      <div class="meta">
+        <span class="swatch" style="background:${itemColorCss(it)}"></span>
+        <button class="tog" data-t="stack" aria-pressed="${it.stack!==false}" title="Can other freight sit on top of it?">stack</button>
+        ${KIND_OF[it.type]==="pallet" ? "" : `<button class="tog" data-t="tip" aria-pressed="${it.tip!==false}" title="Can it be laid on its side if the dimensions suit?">tip</button>`}
+        <select class="dropsel" data-f="drop" title="Multi-drop: drop 1 is loaded last, by the doors">
+          ${[1,2,3,4].map(n=>`<option value="${n}" ${(it.drop||1)===n?"selected":""}>drop ${n}</option>`).join("")}
+        </select>
+        <span class="chipslot">${chipHtml()}</span>
+      </div>`;
+    row.addEventListener("input", e=>{
+      const f = e.target.dataset.f; if(!f) return;
+      it[f] = f==="type" ? e.target.value : toNum(e.target.value)||0;
+      if(it.af[f]){ delete it.af[f]; e.target.classList.remove("assumed"); }
+      row.querySelector(".chipslot").innerHTML = chipHtml();
+      recalc();
+    });
+    row.addEventListener("click", e=>{
+      const t = e.target.closest(".tog"); if(!t) return;
+      const f = t.dataset.t;
+      it[f] = it[f] === false;
+      t.setAttribute("aria-pressed", it[f] !== false);
+      recalc();
+    });
+    row.querySelector(".del").addEventListener("click", ()=>{ items = items.filter(x=>x!==it); renderItems(); recalc(); });
+    row.addEventListener("mouseenter", ()=>highlightItem(it.id, true));
+    row.addEventListener("mouseleave", ()=>highlightItem(it.id, false));
+    itemsBody.appendChild(row);
+  }
+}
+
+/* ================= split-load suggester =================
+   When nothing in the fleet takes the whole job, find the smallest pair of
+   vehicles that does: best-effort pack into vehicle A, then strict-pack the
+   remainder into the smallest B that swallows it. */
+function reqBlocked(v, reqs){
+  if(!reqs) return false;
+  if(reqs.needTail && (!v.tail || reqs.maxPieceKg > v.tail || reqs.maxPieceLen > v.tailDepth)) return true;
+  if(reqs.needCurtain && !v.curtain) return true;
+  return false;
+}
+function groupUnits(units){
+  const by = new Map();
+  for(const x of units){
+    const u = x.u || x;
+    if(!by.has(u.item.id)) by.set(u.item.id, {...u.item, qty:0});
+    by.get(u.item.id).qty++;
+  }
+  return [...by.values()];
+}
+function describeItems(list){
+  return list.map(i=>i.qty + "× " + (i.type==="length" ? "lengths" : i.type)).join(" + ");
+}
+function splitSuggest(reqs){
+  const usable = VEHICLES.filter(v=>!reqBlocked(v, reqs));
+  const idx = v => VEHICLES.indexOf(v);
+  let best = null;
+  for(const a of usable){
+    const ra = packVehicle(a, items, null, reqs, true);
+    if(!ra.placements.length) continue;
+    const rem = groupUnits(ra.unplaced);
+    if(!rem.length) continue;
+    for(const b of usable){
+      const rb = packVehicle(b, rem, null, reqs);
+      if(rb.ok){
+        const cand = {a, b, aItems:describeItems(groupUnits(ra.placements.map(p=>({u:p.u})))), bItems:describeItems(rem), size:idx(a)+idx(b)};
+        if(!best || cand.size < best.size) best = cand;
+        break;   // b runs smallest-first, so the first hit is the smallest partner for this a
+      }
+    }
+  }
+  return best;
+}
+
+/* ================= loading logic ================= */
+let loading = "unsure";
+let loadingSource = null;   // null | "auto" | "email" | "manual"
+let adrFlag = false;
+let curtainAsked = false;   // email explicitly demands a curtain-sider
+
+/* the freight decides which loading methods are even possible — a 380 kg pallet
+   is nobody's handball job, so the system leads instead of offering it */
+function assessLoading(p){
+  const feasible = {unsure:true, handball:true, forklift:true, extforks:true, taillift:true, dock:true, hiab:true};
+  const why = {};
+  if(p.maxKg > HANDLING.twoManKg){
+    feasible.handball = false;
+    why.handball = Math.round(p.maxKg) + " kg pieces — two people top out around " + HANDLING.twoManKg + " kg";
+  }
+  const maxTail = Math.max(...VEHICLES.map(v=>v.tail));
+  const maxPlat = Math.max(...VEHICLES.map(v=>v.tailDepth));
+  if(p.maxKg > maxTail){
+    feasible.taillift = false;
+    why.taillift = Math.round(p.maxKg) + " kg — beyond any tail lift in the fleet (~" + maxTail + " kg max)";
+  } else if(p.maxLen > maxPlat){
+    feasible.taillift = false;
+    why.taillift = "longest piece " + Math.round(p.maxLen) + " cm won't sit on any tail-lift platform (~" + maxPlat + " cm max)";
+  }
+  let suggested = null;
+  if(p.maxKg > 0) suggested = p.maxKg <= HANDLING.twoManKg ? "handball" : "forklift";
+  return {feasible, why, suggested};
+}
+const LOADING_LABEL = {handball:"handball", forklift:"forklift", extforks:"forklift with extended forks", taillift:"tail-lift", dock:"loading-dock", hiab:"Hiab"};
+function pieceProfile(){
+  let maxKg = 0, maxKgName = "", maxLen = 0, maxMechLen = 0, anyNoWeight = false;
+  for(const it of items){
+    const len = Math.max(it.L, it.W);
+    const mech = (KIND_OF[it.type] === "pallet") || it.w > HANDLING.twoManKg;
+    if(it.w > maxKg){ maxKg = it.w; maxKgName = it.type; }
+    if(len > maxLen) maxLen = len;
+    if(mech && len > maxMechLen) maxMechLen = len;
+    if(!it.w) anyNoWeight = true;
+  }
+  return {maxKg, maxKgName, maxLen, maxMechLen, anyNoWeight};
+}
+function deriveReqs(p){
+  const needTail = loading === "taillift";
+  let needCurtain = curtainAsked;
+  if(loading === "forklift"  && p.maxMechLen >= HANDLING.rearForkLen) needCurtain = true;
+  if(loading === "extforks"  && p.maxMechLen >= HANDLING.extForkLen)  needCurtain = true;
+  return {needTail, needCurtain, hiab: loading === "hiab", maxPieceKg: p.maxKg, maxPieceLen: p.maxLen};
+}
+/* levelled notes for the decision card: stop > warn > ask > info */
+const NOTE_ICON = {
+  stop:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 14.5 13.5H1.5Z"/><path d="M8 6.8v2.9" stroke-linecap="round"/><circle cx="8" cy="11.9" r="0.4" fill="currentColor" stroke="none"/></svg>`,
+  warn:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 14.5 13.5H1.5Z"/><path d="M8 6.8v2.9" stroke-linecap="round"/><circle cx="8" cy="11.9" r="0.4" fill="currentColor" stroke="none"/></svg>`,
+  ask:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.3c.2-1 1-1.7 2-1.6 1 .1 1.7.9 1.6 1.8-.1 1.2-1.7 1.3-1.9 2.5"/><circle cx="8" cy="11.6" r="0.4" fill="currentColor" stroke="none"/></svg>`,
+  info:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.4v3.4"/><circle cx="8" cy="5.1" r="0.4" fill="currentColor" stroke="none"/></svg>`,
+};
+function buildNotes(p, reqs){
+  const notes = [];
+  if(!items.length) return notes;
+  const m = v => (v/100).toFixed(1).replace(/\.0$/,"") + " m";
+  const add = (lv, t) => notes.push({lv, t});
+  // weight read
+  if(p.maxKg === 0){
+    add("warn", "No weights given — can't judge handball vs machine, or check payload. Get weights before quoting.");
+  } else if(p.maxKg <= HANDLING.soloKg){
+    add("info", `Heaviest piece ${p.maxKg} kg — one person can handball it. Any van works for loading.`);
+  } else if(p.maxKg <= HANDLING.twoManKg){
+    add("info", `Heaviest piece ${p.maxKg} kg — two-man handball job (HSE solo guide is ~${HANDLING.soloKg} kg). Fine through any back doors.`);
+  } else if(loadingSource !== "auto"){
+    add("info", `Heaviest piece ${Math.round(p.maxKg)} kg — machine territory. It goes on by forklift, or by tail lift + pump truck if palletised.`);
+  }
+  // length read for mechanically-handled freight
+  if(p.maxMechLen >= HANDLING.extForkLen){
+    add("warn", `Longest heavy piece ${m(p.maxMechLen)} — too long for the back doors on forks, even extended ones. Side-load job: curtain-siders run Luton to Artic, nothing smaller.`);
+  } else if(p.maxMechLen >= HANDLING.rearForkLen){
+    if(loading === "extforks"){
+      add("info", `Longest heavy piece ${m(p.maxMechLen)} — extended forks can just put that through the back doors.`);
+    } else {
+      add("ask", `Longest heavy piece ${m(p.maxMechLen)} — a standard forklift can't put that through the back doors (~${m(HANDLING.rearForkLen)} limit). Ask: extended forks, or side-load through a curtain-sider?`);
+    }
+  }
+  // tail lift read
+  if(reqs.needTail){
+    if(p.maxKg > 0){
+      const fit = VEHICLES.find(v => v.tail >= p.maxKg);
+      if(fit) add("info", `Tail lifts, typically: Luton ~500 kg · 7.5T ~750 kg · 18T ~1000 kg · Artic ~1500 kg. At ${Math.round(p.maxKg)} kg the smallest lift that takes it is the ${fit.name}.`);
+      else add("warn", `${Math.round(p.maxKg)} kg is beyond any tail lift in the fleet (Artic ~1500 kg) — this is a forklift or Hiab job.`);
+    }
+    if(p.maxLen >= 160) add("warn", "Long pieces have to sit on the platform to ride the lift — check platform depths in the loading table.");
+    add("info", "Tail-lift rules: hard level ground, pump-truckable pallet, kerbside.");
+  }
+  if(reqs.hiab) add("warn", "Hiab / crane loading needs a flatbed or crane vehicle — outside the standard fleet. Price it specially.");
+  if(curtainAsked) add("info", "The email asks for a curtain-sider — curtain-side bodies run from Luton up to Artic.");
+  if(adrFlag) add("warn", "Dangerous goods in the email (ADR) — ADR-qualified driver, DGN paperwork, UN number / class / packing group confirmed before booking.");
+  const hotPallet = items.find(i => KIND_OF[i.type]==="pallet" && i.w > 1250);
+  if(hotPallet) add("warn", `${Math.round(hotPallet.w)} kg on one pallet is over the standard 1250 kg full-pallet rating — check the pallet can take it, forklift only.`);
+  if(loading === "unsure"){
+    add("ask", "Loading method not set — this fit is size-only. Pick it in step 3: forklift, tail lift or by hand? Back doors, or curtain-side?");
+  }
+  if(p.anyNoWeight && p.maxKg > 0) add("warn", "Some pieces have no weight — payload and tail-lift checks are incomplete.");
+  return notes;
+}
+
+/* ================= UI: vehicles rail + verdict ================= */
+let totalWeightOverride = null;
+function recalc(){
+  const profile = pieceProfile();
+  const assess = assessLoading(profile);
+  const autoNotes = [];
+  // the system leads: pick the realistic method, and never leave an impossible one selected
+  if(items.length && assess.suggested){
+    if(loading === "unsure" && loadingSource !== "manual"){
+      loading = assess.suggested; loadingSource = "auto";
+    } else if(!assess.feasible[loading]){
+      autoNotes.push({lv:"warn", t:LOADING_LABEL[loading].charAt(0).toUpperCase()+LOADING_LABEL[loading].slice(1)+" won't work — "+assess.why[loading]+". Switched to "+LOADING_LABEL[assess.suggested]+" loading."});
+      loading = assess.suggested; loadingSource = "auto";
+    }
+  }
+  if(!items.length && loadingSource === "auto"){ loading = "unsure"; loadingSource = null; }
+  if(items.length && loadingSource === "auto"){
+    autoNotes.push({lv:"info", t:"Assumed "+LOADING_LABEL[loading]+" loading — heaviest piece "+Math.round(profile.maxKg)+" kg. Change it in step 3 if that's wrong."});
+  }
+  document.querySelectorAll("#loadChips button").forEach(b=>{
+    const m = b.dataset.m;
+    b.disabled = !assess.feasible[m];
+    b.title = assess.why[m] || "";
+    b.setAttribute("aria-pressed", m === loading ? "true" : "false");
+  });
+  const reqs = deriveReqs(profile);
+  results = VEHICLES.map(v => ({v, r: packVehicle(v, items, totalWeightOverride, reqs)}));
+  const rec = results.find(x=>x.r.ok);
+  const notes = buildNotes(profile, reqs);
+  notes.push(...autoNotes);
+  const shown = selVehicle ? results.find(x=>x.v.id===selVehicle) : rec;
+  // decision card
+  if(!items.length){
+    $("#recName").textContent = "—"; $("#recName").className = "rec-name";
+    $("#recDims").textContent = ""; $("#vstats").innerHTML = "";
+  } else if(reqs.hiab){
+    $("#recName").textContent = "Hiab / crane job"; $("#recName").className = "rec-name none";
+    $("#recDims").textContent = "needs a flatbed or crane vehicle — outside the standard fleet, price specially";
+    $("#vstats").innerHTML = "";
+  } else if(rec){
+    const badges = adrFlag ? `<span class="reqbadge">ADR</span>` : "";
+    $("#recName").innerHTML = bodyName(rec.v, reqs) + badges; $("#recName").className = "rec-name";
+    $("#recDims").textContent = rec.v.L + " × " + rec.v.W + " × " + rec.v.H + " cm · payload " + rec.r.stats.effPayload + " kg" +
+      (reqs.needTail && rec.v.tailPayload ? " with tail lift" : "");
+    // narrate the bump: when loading needs push the job past the pure-size minimum, say so
+    const sizeRec = VEHICLES.find(v => packVehicle(v, items, totalWeightOverride).ok);
+    if(sizeRec && sizeRec.id !== rec.v.id){
+      const cause = [];
+      if(reqs.needCurtain){
+        cause.push(profile.maxMechLen >= HANDLING.rearForkLen
+          ? "heavy " + (profile.maxMechLen/100).toFixed(1).replace(/\.0$/,"") + " m pieces have to side-load through the curtain"
+          : "the job needs a curtain-sider");
+      }
+      if(reqs.needTail) cause.push("it needs a tail lift that takes " + Math.round(profile.maxKg) + " kg");
+      if(cause.length)
+        notes.push({lv:"ask", t:"Smallest by size alone is the " + sizeRec.name + ", but " + cause.join(" and ") + " — so it goes " + bodyName(rec.v, reqs) + "."});
+    }
+    const s = rec.r.stats;
+    $("#vstats").innerHTML =
+      stat(s.weight ? s.payloadPct+"%" : "?", "payload used", s.payloadPct>90) +
+      stat(s.ldm.toFixed(1), "loading metres", false) +
+      stat(s.floorPct+"%", "floor used", false) +
+      stat(s.lenFree+" cm", "length spare", s.lenFree<20) +
+      stat(s.maxH+" cm", "load height", false) +
+      (s.cogPct===null ? "" : stat(s.cogPct+"%", "weight aft", s.cogPct>60));
+    if(s.cogPct !== null && s.cogPct > 60)
+      notes.push({lv:"warn", t:"Rear-heavy — brief the driver to get the heavy freight up against the bulkhead."});
+    if(s.stackedPallets > 0)
+      notes.push({lv:"ask", t:"This plan double-stacks " + s.stackedPallets + (s.stackedPallets===1 ? " pallet" : " pallets") + " — confirm the freight can take a pallet on top before booking."});
+  } else {
+    const split = splitSuggest(reqs);
+    if(split){
+      $("#recName").innerHTML = `Split load: ${split.a.name} + ${split.b.name}`;
+      $("#recName").className = "rec-name";
+      $("#recDims").textContent = split.a.name + " takes " + split.aItems + " · " + split.b.name + " takes " + split.bItems;
+      notes.push({lv:"stop", t:"Too much for one vehicle — quote it as two."});
+    } else {
+      $("#recName").textContent = "Nothing in the fleet fits — even split two ways"; $("#recName").className = "rec-name none";
+      $("#recDims").textContent = "three-plus vehicles or specialist kit — price it manually";
+      notes.push({lv:"stop", t:"No single vehicle or pair takes this load — check the freight lines, or price it as a multi-vehicle job."});
+    }
+    $("#vstats").innerHTML = "";
+  }
+  const LV_ORDER = {stop:0, warn:1, ask:2, info:3};
+  notes.sort((a,b)=>LV_ORDER[a.lv]-LV_ORDER[b.lv]);
+  $("#notes").innerHTML = notes.map(n=>`<div class="note ${n.lv}">${NOTE_ICON[n.lv]}<span>${n.t}</span></div>`).join("");
+  $("#copyPlan").disabled = !rec;
+  // rail
+  const rail = $("#rail"); rail.innerHTML = "";
+  for(const {v, r} of results){
+    const b = document.createElement("button");
+    b.className = "vrow";
+    b.setAttribute("aria-pressed", shown && shown.v.id===v.id ? "true" : "false");
+    const tag = rs => {
+      const t = rs.join(" ");
+      if(/too big/.test(t)) return "TOO BIG";
+      if(/tail lift|tail-lift/.test(t)) return "TAIL LIFT";
+      if(/curtain/.test(t)) return "CURTAIN";
+      if(/payload/.test(t)) return "WEIGHT";
+      return "SPACE";
+    };
+    const chip = !items.length ? `<span class="chip idle">—</span>`
+      : r.ok ? `<span class="chip fit">FITS</span>`
+      : `<span class="chip nofit" title="${r.reasons.join(" · ")}">${tag(r.reasons)}</span>`;
+    b.innerHTML = `<span class="nm">${v.name}</span>${chip}
+      <span class="dims mono">${v.L}×${v.W}×${v.H} · ${v.payload}kg · ${v.pallets}pal</span>`;
+    b.addEventListener("click", ()=>{ selVehicle = v.id; recalc(); });
+    rail.appendChild(b);
+  }
+  drawBay(shown ? shown.v : null, shown ? shown.r : null, rec);
+  saveState();
+}
+function stat(n, l, warn){ return `<div class="vstat"><div class="n mono${warn?" warn":""}">${n}</div><div class="l">${l}</div></div>`; }
+
+/* ================= 3D BAY ================= */
+const canvas = $("#bay");
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--bay").trim() || "#14181D");
+const camera = new THREE.PerspectiveCamera(42, 2, 1, 6000);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI/2 - 0.02;
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const key = new THREE.DirectionalLight(0xffffff, 0.55); key.position.set(-300, 500, 200); scene.add(key);
+const fill = new THREE.DirectionalLight(0x8899bb, 0.25); fill.position.set(300, 200, -300); scene.add(fill);
+let loadGroup = new THREE.Group(); scene.add(loadGroup);
+const meshByItem = new Map();
+
+const COLORS = {pallet:0xC8873F, box:0x5B8DEF, length:0x9AA7B4};
+const PALLET_BASE = 0x8a5f2e;
+/* each freight line gets its own shade within its family colour, so staff can
+   match a block in the bay to a row in the table at a glance */
+function itemColorCss(it){
+  const kind = KIND_OF[it.type] || "box";
+  const fam = items.filter(x => (KIND_OF[x.type]||"box") === kind);
+  const i = Math.max(0, fam.indexOf(it));
+  const base = {pallet:[30,58,52], box:[222,62,62], length:[210,10,68]}[kind];
+  return `hsl(${(base[0] + i*18) % 360}, ${base[1]}%, ${Math.max(30, Math.min(75, base[2] + (i%2 ? -8 : 4)))}%)`;
+}
+
+function clearGroup(g){
+  while(g.children.length){
+    const c = g.children.pop();
+    c.traverse?.(o=>{ o.geometry?.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose()); } });
+  }
+}
+function boxMesh(w,h,d,color,opacity){
+  const g = new THREE.BoxGeometry(w,h,d);
+  const m = new THREE.MeshLambertMaterial({color, transparent:opacity<1, opacity});
+  const mesh = new THREE.Mesh(g,m);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({color:0x0e1114, transparent:true, opacity:0.55}));
+  mesh.add(edges);
+  return mesh;
+}
+function drawBay(v, r, rec){
+  clearGroup(loadGroup);
+  meshByItem.clear();
+  const hud = $("#hudStamp"), un = $("#unplacedNote");
+  un.textContent = "";
+  if(!v || !items.length){
+    hud.innerHTML = items.length ? "" : "AWAITING FREIGHT";
+    renderer.render(scene, camera);
+    return;
+  }
+  // vehicle shell — floor + translucent walls + edge frame
+  const shell = new THREE.Group();
+  const floorM = new THREE.Mesh(new THREE.PlaneGeometry(v.W, v.L),
+    new THREE.MeshLambertMaterial({color:0x1d232b, side:THREE.DoubleSide}));
+  floorM.rotation.x = -Math.PI/2;
+  floorM.position.set(0, 0, 0);
+  shell.add(floorM);
+  const grid = new THREE.GridHelper(Math.max(v.W, v.L), Math.round(Math.max(v.W, v.L)/50), 0x333d48, 0x232b34);
+  grid.scale.set(v.W/Math.max(v.W,v.L), 1, v.L/Math.max(v.W,v.L));
+  grid.position.y = 0.3;
+  shell.add(grid);
+  const shellGeom = new THREE.BoxGeometry(v.W, v.H, v.L);
+  const frame = new THREE.LineSegments(new THREE.EdgesGeometry(shellGeom), new THREE.LineBasicMaterial({color:0x55B1F2, transparent:true, opacity:0.8}));
+  frame.position.set(0, v.H/2, 0);
+  shell.add(frame);
+  const walls = new THREE.Mesh(shellGeom, new THREE.MeshLambertMaterial({color:0x55B1F2, transparent:true, opacity:0.05, side:THREE.BackSide}));
+  walls.position.set(0, v.H/2, 0);
+  shell.add(walls);
+  loadGroup.add(shell);
+
+  // cargo — packer coords: x from left wall, z from front bulkhead
+  for(const p of r.placements){
+    const kind = p.u.kind;
+    const col = new THREE.Color(itemColorCss(p.u.item));
+    let mesh;
+    if(kind === "pallet"){
+      const baseH = Math.min(14, p.h);
+      const grp = new THREE.Group();
+      const base = boxMesh(p.w, baseH, p.d, PALLET_BASE, 1); base.position.y = baseH/2; grp.add(base);
+      if(p.h > baseH){
+        const cargo = boxMesh(p.w-2, p.h-baseH, p.d-2, col, 0.92);
+        cargo.position.y = baseH + (p.h-baseH)/2; grp.add(cargo);
+      }
+      mesh = grp;
+    } else {
+      mesh = boxMesh(p.w, p.h, p.d, col, kind==="length" ? 1 : 0.95);
+      mesh.position.y = p.h/2;
+    }
+    // convert to centred coords
+    const px = p.x + p.w/2 - v.W/2;
+    const pz = p.z + p.d/2 - v.L/2;
+    if(mesh.isGroup){ mesh.position.x = px; mesh.position.z = pz; }
+    else { mesh.position.set(px, p.y + p.h/2, pz); }
+    if(mesh.isGroup) mesh.position.y = p.y;
+    mesh.traverse(o=>{ o.userData.pl = p; });
+    mesh.userData.pl = p;
+    loadGroup.add(mesh);
+    if(!meshByItem.has(p.u.item.id)) meshByItem.set(p.u.item.id, []);
+    meshByItem.get(p.u.item.id).push(mesh);
+  }
+
+  hud.innerHTML = v.name.toUpperCase() + " — " + (r.ok
+      ? `<span class="ok">FITS${rec && rec.v.id===v.id ? " · RECOMMENDED" : ""}</span>`
+      : `<span class="no">DOES NOT FIT</span>`);
+  if(!r.ok) un.textContent = r.reasons.join("\n");
+
+  fitCamera(v);
+  renderer.render(scene, camera);
+}
+let currentView = "orbit";
+function fitCamera(v, force){
+  const R = Math.max(v.L, v.W, v.H);
+  controls.target.set(0, v.H/3, 0);
+  if(currentView === "top"){ camera.position.set(0, R*2.1, 0.02); }
+  else if(currentView === "side"){ camera.position.set(R*1.9, v.H*0.6, 0); }
+  else if(currentView === "rear"){ camera.position.set(0, v.H*0.7, R*1.6); }
+  else { camera.position.set(-R*1.15, R*0.85, R*1.25); }
+  camera.far = R*8; camera.updateProjectionMatrix();
+  controls.update();
+}
+$("#bayViews").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  currentView = b.dataset.view;
+  document.querySelectorAll("#bayViews button").forEach(x=>x.setAttribute("aria-pressed", x===b ? "true":"false"));
+  const shown = selVehicle ? results.find(x=>x.v.id===selVehicle) : results.find(x=>x.r.ok);
+  if(shown) fitCamera(shown.v, true);
+});
+/* hover a block in the bay → tooltip + matching table row lights up */
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+canvas.addEventListener("mousemove", e=>{
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((e.clientX - rect.left)/rect.width)*2 - 1;
+  pointer.y = -((e.clientY - rect.top)/rect.height)*2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(loadGroup.children, true).find(h=>h.object.userData.pl);
+  const tip = $("#bayTip");
+  document.querySelectorAll("#itemsBody .frow").forEach(r=>r.classList.remove("hovering"));
+  if(hit){
+    const p = hit.object.userData.pl, it = p.u.item;
+    tip.hidden = false;
+    tip.textContent = `${it.qty}× ${it.type} · ${it.L}×${it.W}×${it.H} cm · ${it.w||"?"} kg` +
+      ((it.drop||1) > 1 ? ` · drop ${it.drop}` : "") + (p.y > 0 ? " · stacked" : "");
+    tip.style.left = Math.min(e.clientX - rect.left + 14, rect.width - 240) + "px";
+    tip.style.top = (e.clientY - rect.top + 14) + "px";
+    const r = document.querySelector(`#itemsBody .frow[data-id="${it.id}"]`);
+    if(r) r.classList.add("hovering");
+    highlightItem(it.id, true);
+  } else {
+    tip.hidden = true;
+    for(const id of meshByItem.keys()) highlightItem(id, false);
+  }
+});
+canvas.addEventListener("mouseleave", ()=>{
+  $("#bayTip").hidden = true;
+  document.querySelectorAll("#itemsBody .frow").forEach(r=>r.classList.remove("hovering"));
+  for(const id of meshByItem.keys()) highlightItem(id, false);
+});
+function highlightItem(id, on){
+  const meshes = meshByItem.get(id); if(!meshes) return;
+  for(const m of meshes){
+    m.traverse(o=>{
+      if(o.isMesh && o.material && o.material.emissive !== undefined)
+        o.material.emissive = new THREE.Color(on ? 0x7a4a12 : 0x000000);
+    });
+  }
+}
+function resize(){
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if(canvas.width !== w*renderer.getPixelRatio() || canvas.height !== h*renderer.getPixelRatio()){
+    renderer.setSize(w, h, false);
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+  }
+}
+function tick(){
+  resize();
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ================= wiring ================= */
+const SAMPLES = {
+  s1:`Hi team,\nCould you price the below for tomorrow please:\n4 pallets of panels 1200 x 1000 x 1800mm, 380kg each\n2 boxes of inverters 800 x 600 x 500, 40kg total\n10 lengths of mounting rail @ 4.2m\nCollection Warrington WA4, delivery Leeds LS12.\nThanks!`,
+  s2:`Morning, we've got 2 standard pallets, 300kg each, 1.2m tall. Any time today. Cheers`,
+  s3:`1 crate 2.4m x 1.2m x 1.0m 500kg\n6 cartons 60 x 40 x 40, 15kg each\n3 steel bars 5.5m long`,
+  s4:`Hi, we have 1 length of fabricated steel, 2m long, 220kg. Forklift on site at both ends. Needed Thursday please.`,
+  s5:`2 pallets 1200 x 1000 x 1400, 400kg each - do not stack anything on these\n4 boxes of lamps 1000 x 200 x 200mm, 12kg each - fragile, keep upright`,
+  s6:`Morning - ADR job, lithium batteries UN3480.\n30 pallets 1200 x 1000 x 1200mm, 650kg each - do not stack.\nForklift both ends, curtain-sider preferred.`,
+};
+/* AI-read first (Claude via the parse-freight function), pattern reader as instant fallback */
+function applyRegexParse(){
+  const res = parseEmail($("#emailBox").value);
+  items = res.items;
+  totalWeightOverride = res.totalWeight;
+  adrFlag = res.adr;
+  curtainAsked = res.wantsCurtain;
+  loading = "unsure"; loadingSource = null;
+  if(res.wantsTail){ loading = "taillift"; loadingSource = "email"; }
+  selVehicle = null;
+  return res;
+}
+function applyAiParse(ai){
+  const out = [];
+  for(const it of (ai.items || [])){
+    if(!it || !it.type) continue;
+    const d = TYPE_DEFAULTS[it.type] || TYPE_DEFAULTS.box;
+    const item = {
+      id: uid++, qty: Math.max(1, it.qty || 1), type: it.type,
+      L: it.length_cm ?? d.L, W: it.width_cm ?? d.W, H: it.height_cm ?? d.H,
+      w: it.weight_each_kg ?? 0, assumed: [], af: {},
+      stack: it.stackable !== false,
+      tip: KIND_OF[it.type] !== "pallet" && it.tippable !== false,
+      drop: it.drop || 1,
+    };
+    if(it.length_cm == null) item.af.L = true;
+    if(it.width_cm == null) item.af.W = true;
+    if(it.height_cm == null) item.af.H = true;
+    if(it.weight_each_kg == null) item.af.w = true;
+    out.push(item);
+  }
+  items = out;
+  totalWeightOverride = ai.total_weight_kg || null;
+  adrFlag = !!ai.adr;
+  curtainAsked = !!ai.wants_curtain;
+  loading = "unsure"; loadingSource = null;
+  if(ai.wants_tail){ loading = "taillift"; loadingSource = "email"; }
+  selVehicle = null;
+}
+$("#btnParse").addEventListener("click", async ()=>{
+  const text = $("#emailBox").value;
+  if(!text.trim()) return;
+  const btn = $("#btnParse");
+  btn.disabled = true; const label = btn.textContent; btn.textContent = "Reading…";
+  let ai = null;
+  if(sbSession){
+    try{
+      const ctl = new AbortController();
+      const timer = setTimeout(()=>ctl.abort(), 9000);
+      const r = await fetch(FN_URL, {
+        method: "POST", signal: ctl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SB_KEY,
+          "Authorization": "Bearer " + sbSession.access_token,
+        },
+        body: JSON.stringify({ text }),
+      });
+      clearTimeout(timer);
+      if(r.ok) ai = await r.json();
+    }catch(e){ /* fall through to the pattern reader */ }
+  }
+  btn.disabled = false; btn.textContent = label;
+  const notes = $("#parseNotes");
+  if(ai && Array.isArray(ai.items) && ai.items.length){
+    applyAiParse(ai);
+    notes.innerHTML = '<span class="ai-note">Read by AI</span> — check the freight table before quoting.';
+  } else {
+    applyRegexParse();
+    notes.textContent = items.length
+      ? (sbSession ? "Pattern reader used (AI unavailable or found nothing extra)." : "")
+        + (totalWeightOverride ? " Total weight line read: " + totalWeightOverride + " kg." : "")
+      : "Couldn't find freight lines — add items manually below, or check the wording.";
+  }
+  renderItems(); recalc();
+});
+$("#btnClear").addEventListener("click", ()=>{
+  $("#emailBox").value=""; items=[]; totalWeightOverride=null; selVehicle=null;
+  $("#parseNotes").textContent="";
+  renderItems(); recalc();
+});
+$("#samples").addEventListener("change", e=>{
+  if(!e.target.value) return;
+  $("#emailBox").value = SAMPLES[e.target.value];
+  e.target.value = "";
+  $("#btnParse").click();
+});
+const PLURAL = {pallet:"PALLETS", euro:"EURO PALLETS", crate:"CRATES", box:"BOXES", length:"LENGTHS"};
+const SINGULAR = {pallet:"PALLET", euro:"EURO PALLET", crate:"CRATE", box:"BOX", length:"LENGTH"};
+function buildPlanText(){
+  const rec = results.find(x=>x.r.ok); if(!rec) return "";
+  const p = pieceProfile(), reqs = deriveReqs(p), s = rec.r.stats;
+  const L = [`${bodyName(rec.v, reqs).toUpperCase()} REQUIRED`];
+  for(const it of items){
+    const name = it.qty > 1 ? PLURAL[it.type] : SINGULAR[it.type];
+    let line = `${it.qty} X ${name} ${it.L}x${it.W}x${it.H}CM`;
+    if(it.w) line += ` @ ${it.w}KG EACH`;
+    if(it.stack === false) line += " - DO NOT STACK";
+    if(it.tip === false && KIND_OF[it.type] !== "pallet") line += " - THIS WAY UP";
+    if((it.drop||1) > 1) line += ` - DROP ${it.drop}`;
+    L.push(line);
+  }
+  const totKg = Math.round(Math.max(items.reduce((a,i)=>a+i.qty*(i.w||0),0), totalWeightOverride||0));
+  L.push(`TOTAL ${items.reduce((a,i)=>a+ +i.qty,0)} PIECES - ${totKg}KG - ${s.ldm.toFixed(1)} LDM - LOAD HEIGHT ${s.maxH}CM`);
+  if(reqs.needCurtain) L.push("CURTAIN SIDE REQUIRED");
+  if(reqs.needTail) L.push(`TAIL LIFT & PUMP TRUCK REQUIRED (LIFT RATED ~${rec.v.tail}KG)`);
+  if(adrFlag) L.push("ADR - DANGEROUS GOODS - ADR DRIVER & DGN PAPERWORK REQUIRED");
+  if(items.some(i=>!i.w)) L.push("WEIGHTS TBC WITH CUSTOMER");
+  return L.join(" //\n");
+}
+$("#copyPlan").addEventListener("click", async ()=>{
+  const t = buildPlanText(); if(!t) return;
+  try{ await navigator.clipboard.writeText(t); }catch(e){
+    const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  }
+  const b = $("#copyPlan"); b.textContent = "Copied ✓";
+  setTimeout(()=>{ b.textContent = "Copy load plan"; }, 1400);
+});
+$("#loadChips").addEventListener("click", e=>{
+  const b = e.target.closest("button[data-m]"); if(!b || b.disabled) return;
+  loading = b.dataset.m;
+  loadingSource = "manual";
+  recalc();
+});
+$("#knowBody").innerHTML = VEHICLES.map(v=>`<tr>
+  <td>${v.name}</td>
+  <td class="mono">${v.tail ? "~"+v.tail+" kg" : "—"}</td>
+  <td class="mono">${v.tailDepth ? "~"+v.tailDepth+" cm" : "—"}</td>
+  <td>${v.bodies}</td>
+</tr>`).join("");
+document.querySelector(".add-row").addEventListener("click", e=>{
+  const b = e.target.closest("button[data-add]"); if(!b) return;
+  const t = b.dataset.add;
+  const d = TYPE_DEFAULTS[t];
+  const af = t==="length" ? {L:true,W:true,H:true,w:true} : {H:true,w:true};
+  items.push({id:uid++, qty:1, type:t, L:d.L, W:d.W, H:d.H, w:d.w, assumed:[], af, stack:true, tip:KIND_OF[t]!=="pallet"});
+  renderItems(); recalc();
+});
+function saveState(){
+  try{ localStorage.setItem("loadlab-v1", JSON.stringify({items, email:$("#emailBox").value, totalWeightOverride, loading, loadingSource, adrFlag, curtainAsked})); }catch(e){}
+}
+(function restore(){
+  try{
+    const s = JSON.parse(localStorage.getItem("loadlab-v1")||"null");
+    if(s){
+      items = s.items||[]; uid = Math.max(1, ...items.map(i=>i.id+1));
+      $("#emailBox").value = s.email||""; totalWeightOverride = s.totalWeightOverride||null;
+      loading = s.loading||"unsure";
+      loadingSource = s.loadingSource||null;
+      adrFlag = !!s.adrFlag;
+      curtainAsked = !!s.curtainAsked;
+      document.querySelectorAll("#loadChips button").forEach(x=>x.setAttribute("aria-pressed", x.dataset.m===loading ? "true":"false"));
+    }
+  }catch(e){}
+  renderItems(); recalc();
+})();
+</script>
+</body>
+</html>
