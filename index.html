@@ -323,6 +323,22 @@ tr.hovering td{background:var(--accent-soft);}
 }
 .whoami button:hover{color:var(--ink);}
 .ai-note{color:var(--good);}
+.linkish{
+  display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer;
+  color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;
+}
+.linkish:hover{color:var(--ink);}
+#adminPanel{max-width:1500px; margin:0 auto 18px;}
+.approval-row{
+  display:flex; align-items:center; gap:12px; padding:9px 2px;
+  border-bottom:1px solid var(--line2); font-size:13.5px;
+}
+.approval-row .em{font-weight:600;}
+.approval-row .when{color:var(--faint); font-size:12px;}
+.approval-row .actions{margin-left:auto; display:flex; gap:6px;}
+.approval-row .approve{color:var(--good); border-color:var(--good);}
+.approval-row .reject{color:var(--bad); border-color:var(--bad);}
+.admin-empty{color:var(--faint); font-size:12.5px; padding:6px 2px;}
 </style>
 </head>
 <body>
@@ -330,15 +346,33 @@ tr.hovering td{background:var(--accent-soft);}
 <div id="authGate">
   <form class="auth-card" id="authForm">
     <h1>Load Lab</h1>
-    <div class="sub">Cal staff sign-in — same login as the toolkit.</div>
-    <label for="authEmail">Email</label>
-    <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery" required>
-    <label for="authPass">Password</label>
-    <input id="authPass" type="password" autocomplete="current-password" required>
-    <button class="primary" type="submit">Sign in</button>
+    <div class="sub">Cal staff sign-in — we'll email you a 6-digit code. No password needed.</div>
+    <div id="stepEmail">
+      <label for="authEmail">Work email</label>
+      <input id="authEmail" type="email" autocomplete="email" placeholder="you@cal.delivery" required>
+      <button class="primary" type="submit">Email me a code</button>
+    </div>
+    <div id="stepCode" hidden>
+      <label for="authCode">Enter the code from your email</label>
+      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
+      <button class="primary" type="submit">Sign in</button>
+      <button type="button" class="linkish" id="authBack">Use a different email</button>
+    </div>
     <div class="auth-err" id="authErr"></div>
   </form>
+  <div class="auth-card" id="pendingCard" hidden>
+    <h1>Request sent</h1>
+    <div class="sub">Your account is verified but needs admin approval before you can use Load Lab.
+      Once it's approved, just sign in again.</div>
+    <button class="primary" id="pendingSignOut" type="button">OK</button>
+  </div>
 </div>
+
+<section class="panel" id="adminPanel" hidden>
+  <h2>Access requests</h2>
+  <div class="hint">People who verified a @cal.delivery email and are waiting for you to let them in.</div>
+  <div id="adminList"></div>
+</section>
 
 <header>
   <div>
@@ -471,26 +505,105 @@ const FN_URL = SB_URL + "/functions/v1/parse-freight";
 const sb = window.supabase.createClient(SB_URL, SB_KEY);
 let sbSession = null;
 
-function setSession(s){
+let sbProfile = null;
+
+function showGate(mode){ // "login" | "pending" | null (hidden)
+  const gate = document.getElementById("authGate");
+  gate.style.display = mode ? "flex" : "none";
+  document.getElementById("authForm").hidden = mode !== "login";
+  document.getElementById("pendingCard").hidden = mode !== "pending";
+}
+async function setSession(s){
   sbSession = s;
-  document.getElementById("authGate").style.display = s ? "none" : "flex";
   document.getElementById("whoami").textContent = s ? s.user.email : "";
   document.getElementById("signOut").hidden = !s;
+  if(!s){ sbProfile = null; showGate("login"); document.getElementById("adminPanel").hidden = true; return; }
+  // approval gate: look up (or register) this user's profile
+  const { data: prof } = await sb.from("loadlab_profiles")
+    .select("approved,is_admin").eq("user_id", s.user.id).maybeSingle();
+  if(!prof){
+    await sb.from("loadlab_profiles").insert({ user_id: s.user.id, email: s.user.email });
+    showGate("pending"); return;
+  }
+  if(!prof.approved){ showGate("pending"); return; }
+  sbProfile = prof;
+  showGate(null);
+  if(prof.is_admin) refreshAdminPanel();
 }
 sb.auth.getSession().then(({data:{session}})=>setSession(session));
 sb.auth.onAuthStateChange((_e, s)=>setSession(s));
 
+let pendingEmail = null;
 document.getElementById("authForm").addEventListener("submit", async e=>{
   e.preventDefault();
   const err = document.getElementById("authErr");
   err.textContent = "";
-  const { error } = await sb.auth.signInWithPassword({
-    email: document.getElementById("authEmail").value.trim(),
-    password: document.getElementById("authPass").value,
-  });
-  if(error) err.textContent = "Sign-in failed — check the email and password.";
+  const onCodeStep = !document.getElementById("stepCode").hidden;
+  if(!onCodeStep){
+    const email = document.getElementById("authEmail").value.trim().toLowerCase();
+    if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if(error){
+      err.textContent = /rate/i.test(error.message)
+        ? "Too many code emails just now — wait a few minutes and try again."
+        : "Couldn't send the code — try again in a minute.";
+      return;
+    }
+    pendingEmail = email;
+    document.getElementById("stepEmail").hidden = true;
+    document.getElementById("stepCode").hidden = false;
+    document.getElementById("authCode").focus();
+  } else {
+    const token = document.getElementById("authCode").value.trim();
+    if(!token){ err.textContent = "Enter the code from your email."; return; }
+    const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(error) err.textContent = "That code didn't work — check it, or request a new one.";
+  }
 });
+document.getElementById("authBack").addEventListener("click", ()=>{
+  document.getElementById("stepEmail").hidden = false;
+  document.getElementById("stepCode").hidden = true;
+  document.getElementById("authErr").textContent = "";
+});
+document.getElementById("pendingSignOut").addEventListener("click", ()=>sb.auth.signOut());
 document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
+
+/* ---- admin approvals panel ---- */
+async function refreshAdminPanel(){
+  const panel = document.getElementById("adminPanel");
+  const list = document.getElementById("adminList");
+  const { data: rows } = await sb.from("loadlab_profiles")
+    .select("user_id,email,requested_at").eq("approved", false)
+    .order("requested_at", { ascending: true });
+  panel.hidden = false;
+  if(!rows || !rows.length){
+    list.innerHTML = '<div class="admin-empty">No one waiting. New requests appear here.</div>';
+    return;
+  }
+  list.innerHTML = "";
+  for(const r of rows){
+    const div = document.createElement("div");
+    div.className = "approval-row";
+    div.innerHTML = `<span class="em"></span><span class="when"></span>
+      <span class="actions">
+        <button class="ghost approve">Approve</button>
+        <button class="ghost reject">Reject</button>
+      </span>`;
+    div.querySelector(".em").textContent = r.email;
+    div.querySelector(".when").textContent = "requested " + new Date(r.requested_at).toLocaleString("en-GB");
+    div.querySelector(".approve").addEventListener("click", async ()=>{
+      await sb.from("loadlab_profiles")
+        .update({ approved: true, approved_at: new Date().toISOString() })
+        .eq("user_id", r.user_id);
+      refreshAdminPanel();
+    });
+    div.querySelector(".reject").addEventListener("click", async ()=>{
+      await sb.from("loadlab_profiles").delete().eq("user_id", r.user_id);
+      refreshAdminPanel();
+    });
+    list.appendChild(div);
+  }
+}
 
 /* ================= VEHICLES (internal load space, cm) =================
    tail: typical tail-lift rating kg (0 = no tail lift on this body)
