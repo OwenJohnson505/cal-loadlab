@@ -361,6 +361,9 @@ tr.hovering td{background:var(--accent-soft);}
 .code-out{min-height:20px; margin-top:8px; font-size:13.5px;}
 .code-out b{font-family:"IBM Plex Mono",monospace; font-size:17px; letter-spacing:2px; color:var(--ink);}
 .code-out.err{color:var(--bad);}
+.usage-grid{display:grid !important; grid-template-columns:1fr 62px 62px 62px 110px; gap:0 10px; align-items:center;}
+.usage-grid .mono{text-align:right; font-size:13px;}
+.usage-grid .when{text-align:right;}
 .approval-row{
   display:flex; align-items:center; gap:12px; padding:9px 2px;
   border-bottom:1px solid var(--line2); font-size:13.5px;
@@ -421,6 +424,7 @@ tr.hovering td{background:var(--accent-soft);}
     </div>
     <div id="adminPending"></div>
     <div id="adminMembers"></div>
+    <div id="adminUsage"></div>
   </section>
 </div>
 
@@ -651,6 +655,38 @@ async function refreshAdminPanel(){
     .select("user_id,email,approved,is_admin,requested_at")
     .order("requested_at", { ascending: true });
   renderAdminRows(rows || []);
+  renderUsage(rows || []);
+}
+async function renderUsage(profiles){
+  const box = document.getElementById("adminUsage");
+  const since = new Date(Date.now() - 30*24*3600*1000).toISOString();
+  const { data: log } = await sb.from("loadlab_usage_log")
+    .select("email,created_at")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  const now = Date.now();
+  const stats = new Map();   // email -> {today,d7,d30,last}
+  for(const p of profiles.filter(p=>p.approved)) stats.set(p.email.toLowerCase(), {today:0,d7:0,d30:0,last:null});
+  for(const r of (log||[])){
+    const e = r.email.toLowerCase();
+    if(!stats.has(e)) stats.set(e, {today:0,d7:0,d30:0,last:null});
+    const s = stats.get(e);
+    const age = now - new Date(r.created_at).getTime();
+    s.d30++;
+    if(age < 7*24*3600*1000) s.d7++;
+    if(new Date(r.created_at).toDateString() === new Date().toDateString()) s.today++;
+    if(!s.last) s.last = r.created_at;   // log is newest-first
+  }
+  const rows = [...stats.entries()].sort((a,b)=>b[1].d30-a[1].d30);
+  box.innerHTML = '<div class="fhead usage-grid" style="margin-top:12px;"><span>Usage — emails read</span><span>Today</span><span>7 days</span><span>30 days</span><span>Last used</span></div>' +
+    rows.map(([email,s])=>{
+      const last = s.last
+        ? new Date(s.last).toLocaleDateString("en-GB",{day:"numeric",month:"short"}) + " " + new Date(s.last).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
+        : "never";
+      return `<div class="approval-row usage-grid"><span class="em"></span><span class="mono">${s.today}</span><span class="mono">${s.d7}</span><span class="mono">${s.d30}</span><span class="when">${last}</span></div>`;
+    }).join("");
+  box.querySelectorAll(".em").forEach((el,i)=>{ el.textContent = rows[i][0]; });
 }
 function updateAccessBtn(pendingCount){
   const b = document.getElementById("accessBtn");
@@ -1831,6 +1867,9 @@ $("#btnParse").addEventListener("click", async ()=>{
   }
   btn.disabled = false; btn.textContent = label;
   const notes = $("#parseNotes");
+  if(sbSession){ // usage log — fire and forget
+    sb.from("loadlab_usage_log").insert({ email: sbSession.user.email, kind: ai ? "ai" : "pattern" }).then(()=>{});
+  }
   if(ai && Array.isArray(ai.items) && ai.items.length){
     applyAiParse(ai);
     notes.innerHTML = '<span class="ai-note">Read by AI</span> — check the freight table before quoting.';
