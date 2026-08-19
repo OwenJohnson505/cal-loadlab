@@ -351,6 +351,16 @@ tr.hovering td{background:var(--accent-soft);}
 }
 .note-fold summary:hover{color:var(--ink);}
 .note-fold[open] summary{color:var(--muted);}
+.code-gen{margin:6px 0 4px;}
+.code-gen-row{display:flex; gap:8px;}
+.code-gen-row input{
+  flex:1; font:inherit; font-size:13.5px; color:var(--ink);
+  background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:8px 11px;
+}
+.code-gen-row input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.code-out{min-height:20px; margin-top:8px; font-size:13.5px;}
+.code-out b{font-family:"IBM Plex Mono",monospace; font-size:17px; letter-spacing:2px; color:var(--ink);}
+.code-out.err{color:var(--bad);}
 .approval-row{
   display:flex; align-items:center; gap:12px; padding:9px 2px;
   border-bottom:1px solid var(--line2); font-size:13.5px;
@@ -373,6 +383,7 @@ tr.hovering td{background:var(--accent-soft);}
       <label for="authEmail">Work email</label>
       <input id="authEmail" type="email" autocomplete="email" placeholder="you@cal.delivery" required>
       <button class="primary" type="submit">Email me a code</button>
+      <button type="button" class="linkish" id="haveCode">I already have a code</button>
     </div>
     <div id="stepCode" hidden>
       <label for="authCode">Enter the code from your email</label>
@@ -399,6 +410,15 @@ tr.hovering td{background:var(--accent-soft);}
       <button class="ghost" id="accessClose" type="button">Close</button>
     </div>
     <div class="hint">Everyone here has verified their @cal.delivery email with a sign-in code. Approve new requests, remove leavers, share admin.</div>
+    <div class="code-gen">
+      <div class="fhead" style="grid-template-columns:1fr;"><span>Give someone a sign-in code</span></div>
+      <div class="hint" style="margin-bottom:8px;">No email needed — generate the code here and tell it to them. Single use, valid one hour. They click "I already have a code" on the sign-in screen.</div>
+      <div class="code-gen-row">
+        <input id="codeGenEmail" type="email" placeholder="name@cal.delivery">
+        <button class="ghost" id="codeGenBtn" type="button">Get code</button>
+      </div>
+      <div id="codeGenOut" class="code-out"></div>
+    </div>
     <div id="adminPending"></div>
     <div id="adminMembers"></div>
   </section>
@@ -589,7 +609,7 @@ document.getElementById("authForm").addEventListener("submit", async e=>{
       if(/after \d+ second/i.test(error.message)){
         err.textContent = "One code per minute — give it 60 seconds, then try again.";
       } else if(/rate limit/i.test(error.message)){
-        err.textContent = "The sign-in email service has hit its hourly limit. Wait an hour and try again — or if you already have a code email, go back and use the code from the NEWEST one.";
+        err.textContent = "The sign-in email service has hit its hourly limit. Ask Owen for a sign-in code (he can make one instantly), or wait an hour and try again.";
       } else {
         err.textContent = "Couldn't send the code — try again in a minute.";
       }
@@ -602,9 +622,20 @@ document.getElementById("authForm").addEventListener("submit", async e=>{
   } else {
     const token = document.getElementById("authCode").value.trim();
     if(!token){ err.textContent = "Enter the code from your email."; return; }
-    const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
-    if(error) err.textContent = "That code didn't work — check it, or request a new one.";
+    let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
+    if(res.error) err.textContent = "That code didn't work — check it, or request a new one.";
   }
+});
+document.getElementById("haveCode").addEventListener("click", ()=>{
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  const err = document.getElementById("authErr");
+  if(!/@cal\.delivery$/.test(email)){ err.textContent = "Type your @cal.delivery email first, then click again."; return; }
+  err.textContent = "";
+  pendingEmail = email;
+  document.getElementById("stepEmail").hidden = true;
+  document.getElementById("stepCode").hidden = false;
+  document.getElementById("authCode").focus();
 });
 document.getElementById("authBack").addEventListener("click", ()=>{
   document.getElementById("stepEmail").hidden = false;
@@ -642,6 +673,36 @@ document.addEventListener("keydown", e=>{
 document.getElementById("howBtn").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = false; });
 document.getElementById("howClose").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = true; });
 document.getElementById("howBackdrop").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = true; });
+
+document.getElementById("codeGenBtn").addEventListener("click", async ()=>{
+  const out = document.getElementById("codeGenOut");
+  const email = document.getElementById("codeGenEmail").value.trim().toLowerCase();
+  out.className = "code-out";
+  if(!/@cal\.delivery$/.test(email)){ out.className = "code-out err"; out.textContent = "Needs a @cal.delivery address."; return; }
+  out.textContent = "Generating…";
+  try{
+    const r = await fetch(SB_URL + "/functions/v1/admin-code", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SB_KEY,
+        "Authorization": "Bearer " + sbSession.access_token,
+      },
+      body: JSON.stringify({ email }),
+    });
+    const d = await r.json().catch(()=>({}));
+    if(r.ok && d.code){
+      out.innerHTML = "Code for " + d.email + ": <b></b> — single use, valid 1 hour.";
+      out.querySelector("b").textContent = d.code;
+    } else {
+      out.className = "code-out err";
+      out.textContent = d.error === "admins_only" ? "Only admins can generate codes." : "Couldn't generate a code — try again.";
+    }
+  }catch(e){
+    out.className = "code-out err";
+    out.textContent = "Couldn't generate a code — try again.";
+  }
+});
 function renderAdminRows(rows){
   const me = sbSession ? sbSession.user.id : null;
   const act = async (fn) => { await fn(); refreshAdminPanel(); };
