@@ -328,7 +328,13 @@ tr.hovering td{background:var(--accent-soft);}
   color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;
 }
 .linkish:hover{color:var(--ink);}
-#adminPanel{max-width:1500px; margin:0 auto 18px;}
+#accessModal{position:fixed; inset:0; z-index:70; display:flex; align-items:flex-start; justify-content:center; padding:6vh 20px;}
+#accessModal[hidden]{display:none;}
+.access-backdrop{position:absolute; inset:0; background:rgba(8,12,10,.6);}
+.access-card{position:relative; width:min(680px,100%); max-height:84vh; overflow:auto;}
+.access-head{display:flex; justify-content:space-between; align-items:baseline; gap:12px;}
+#accessBtn{padding:4px 12px; font-size:11.5px;}
+#accessBtn.attn{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-soft);}
 .approval-row{
   display:flex; align-items:center; gap:12px; padding:9px 2px;
   border-bottom:1px solid var(--line2); font-size:13.5px;
@@ -369,12 +375,18 @@ tr.hovering td{background:var(--accent-soft);}
   </div>
 </div>
 
-<section class="panel" id="adminPanel" hidden>
-  <h2>Access</h2>
-  <div class="hint">Everyone here has verified their @cal.delivery email with a sign-in code. Approve new requests, remove leavers, share admin.</div>
-  <div id="adminPending"></div>
-  <div id="adminMembers"></div>
-</section>
+<div id="accessModal" hidden>
+  <div class="access-backdrop" id="accessBackdrop"></div>
+  <section class="panel access-card">
+    <div class="access-head">
+      <h2>Access</h2>
+      <button class="ghost" id="accessClose" type="button">Close</button>
+    </div>
+    <div class="hint">Everyone here has verified their @cal.delivery email with a sign-in code. Approve new requests, remove leavers, share admin.</div>
+    <div id="adminPending"></div>
+    <div id="adminMembers"></div>
+  </section>
+</div>
 
 <header>
   <div>
@@ -382,7 +394,7 @@ tr.hovering td{background:var(--accent-soft);}
     <div class="sub">Vehicle size selector — paste the customer's email, check the parsed freight, and the smallest vehicle it genuinely fits goes green. Walls are walls: no leeway is ever added.</div>
   </div>
   <div class="hdr-note">Vehicle guide: Cal North fleet, internal load space (cm)<br>Fit rule: strict — a 121&nbsp;cm pallet does not go in a 120&nbsp;cm gap
-    <div class="whoami"><span id="whoami"></span><button type="button" id="signOut" hidden>sign out</button></div>
+    <div class="whoami"><button type="button" class="ghost" id="accessBtn" hidden>Access</button><span id="whoami"></span><button type="button" id="signOut" hidden>sign out</button></div>
   </div>
 </header>
 
@@ -519,7 +531,12 @@ async function setSession(s){
   sbSession = s;
   document.getElementById("whoami").textContent = s ? s.user.email : "";
   document.getElementById("signOut").hidden = !s;
-  if(!s){ sbProfile = null; showGate("login"); document.getElementById("adminPanel").hidden = true; return; }
+  if(!s){
+    sbProfile = null; showGate("login");
+    document.getElementById("accessModal").hidden = true;
+    document.getElementById("accessBtn").hidden = true;
+    return;
+  }
   // approval gate: look up (or register) this user's profile
   const { data: prof } = await sb.from("loadlab_profiles")
     .select("approved,is_admin").eq("user_id", s.user.id).maybeSingle();
@@ -574,14 +591,26 @@ document.getElementById("authBack").addEventListener("click", ()=>{
 document.getElementById("pendingSignOut").addEventListener("click", ()=>sb.auth.signOut());
 document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
 
-/* ---- admin access panel: approvals + member management ---- */
+/* ---- admin access: header button + modal with approvals & member management ---- */
 async function refreshAdminPanel(){
-  document.getElementById("adminPanel").hidden = false;
   const { data: rows } = await sb.from("loadlab_profiles")
     .select("user_id,email,approved,is_admin,requested_at")
     .order("requested_at", { ascending: true });
   renderAdminRows(rows || []);
 }
+function updateAccessBtn(pendingCount){
+  const b = document.getElementById("accessBtn");
+  b.hidden = !(sbProfile && sbProfile.is_admin);
+  b.textContent = pendingCount > 0 ? "Access · " + pendingCount + " waiting" : "Access";
+  b.classList.toggle("attn", pendingCount > 0);
+}
+document.getElementById("accessBtn").addEventListener("click", ()=>{
+  document.getElementById("accessModal").hidden = false;
+  refreshAdminPanel();
+});
+document.getElementById("accessClose").addEventListener("click", ()=>{ document.getElementById("accessModal").hidden = true; });
+document.getElementById("accessBackdrop").addEventListener("click", ()=>{ document.getElementById("accessModal").hidden = true; });
+document.addEventListener("keydown", e=>{ if(e.key === "Escape") document.getElementById("accessModal").hidden = true; });
 function renderAdminRows(rows){
   const me = sbSession ? sbSession.user.id : null;
   const act = async (fn) => { await fn(); refreshAdminPanel(); };
@@ -589,6 +618,7 @@ function renderAdminRows(rows){
   const membersBox = document.getElementById("adminMembers");
   const pending = rows.filter(r => !r.approved);
   const members = rows.filter(r => r.approved);
+  updateAccessBtn(pending.length);
 
   pendingBox.innerHTML = pending.length
     ? '<div class="fhead" style="grid-template-columns:1fr;"><span>Waiting for approval</span></div>'
