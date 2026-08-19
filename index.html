@@ -627,6 +627,7 @@ document.getElementById("authForm").addEventListener("submit", async e=>{
     const token = document.getElementById("authCode").value.trim();
     if(!token){ err.textContent = "Enter the code from your email."; return; }
     let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
     if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
     if(res.error) err.textContent = "That code didn't work — check it, or request a new one.";
   }
