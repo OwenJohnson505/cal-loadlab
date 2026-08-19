@@ -381,26 +381,28 @@ tr.hovering td{background:var(--accent-soft);}
 <div id="authGate">
   <form class="auth-card" id="authForm">
     <h1>Load Lab</h1>
-    <div class="sub">Cal staff sign-in — we'll email you a 6-digit code. No password needed.</div>
+    <div class="sub" id="authSub">Cal staff sign-in.</div>
     <div id="stepEmail">
       <label for="authEmail">Work email</label>
-      <input id="authEmail" type="email" autocomplete="email" placeholder="you@cal.delivery" required>
-      <button class="primary" type="submit">Email me a code</button>
-      <button type="button" class="linkish" id="haveCode">I already have a code</button>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button class="primary" type="submit" id="authSubmit">Sign in</button>
+      <button type="button" class="linkish" id="modeSwitch">New here? Request access</button>
+      <button type="button" class="linkish" id="haveCode">Sign in with a code from an admin</button>
     </div>
     <div id="stepCode" hidden>
-      <label for="authCode">Enter the code from your email</label>
-      <div class="sub" style="margin:0 0 6px; font-size:12px;">Requesting a new code cancels old ones — always use the newest email.</div>
+      <label for="authCode">Enter the code</label>
       <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
       <button class="primary" type="submit">Sign in</button>
-      <button type="button" class="linkish" id="authBack">Use a different email</button>
+      <button type="button" class="linkish" id="authBack">Back</button>
     </div>
     <div class="auth-err" id="authErr"></div>
   </form>
   <div class="auth-card" id="pendingCard" hidden>
     <h1>Request sent</h1>
-    <div class="sub">Your account is verified but needs admin approval before you can use Load Lab.
-      Once it's approved, just sign in again.</div>
+    <div class="sub">Your request is in — an admin needs to approve it before you can use Load Lab.
+      Once approved, just sign in again with your email and password.</div>
     <button class="primary" id="pendingSignOut" type="button">OK</button>
   </div>
 </div>
@@ -412,10 +414,10 @@ tr.hovering td{background:var(--accent-soft);}
       <h2>Access</h2>
       <button class="ghost" id="accessClose" type="button">Close</button>
     </div>
-    <div class="hint">Everyone here has verified their @cal.delivery email with a sign-in code. Approve new requests, remove leavers, share admin.</div>
+    <div class="hint">Requests come from anyone signing up with a @cal.delivery email. Approve new requests, remove leavers, share admin.</div>
     <div class="code-gen">
       <div class="fhead" style="grid-template-columns:1fr;"><span>Give someone a sign-in code</span></div>
-      <div class="hint" style="margin-bottom:8px;">No email needed — generate the code here and tell it to them. Single use, valid one hour. They click "I already have a code" on the sign-in screen.</div>
+      <div class="hint" style="margin-bottom:8px;">For forgotten passwords or instant access — generate the code and tell it to them. Single use, valid one hour. They click "Sign in with a code from an admin".</div>
       <div class="code-gen-row">
         <input id="codeGenEmail" type="email" placeholder="name@cal.delivery">
         <button class="ghost" id="codeGenBtn" type="button">Get code</button>
@@ -573,6 +575,7 @@ function showGate(mode){ // "login" | "pending" | null (hidden)
   gate.style.display = mode ? "flex" : "none";
   document.getElementById("authForm").hidden = mode !== "login";
   document.getElementById("pendingCard").hidden = mode !== "pending";
+  if(mode === "login" && typeof setAuthMode === "function") setAuthMode("signin");
 }
 async function setSession(s){
   sbSession = s;
@@ -600,6 +603,21 @@ sb.auth.getSession().then(({data:{session}})=>setSession(session));
 sb.auth.onAuthStateChange((_e, s)=>setSession(s));
 
 let pendingEmail = null;
+let authMode = "signin";   // "signin" | "request"
+function setAuthMode(mode){
+  authMode = mode;
+  const req = authMode === "request";
+  document.getElementById("authSubmit").textContent = req ? "Request access" : "Sign in";
+  document.getElementById("modeSwitch").textContent = req ? "Already have access? Sign in" : "New here? Request access";
+  document.getElementById("authSub").textContent = req
+    ? "Choose a password — an admin approves your access after."
+    : "Cal staff sign-in.";
+  document.getElementById("authPass").autocomplete = req ? "new-password" : "current-password";
+  document.getElementById("authErr").textContent = "";
+}
+document.getElementById("modeSwitch").addEventListener("click", ()=>{
+  setAuthMode(authMode === "signin" ? "request" : "signin");
+});
 document.getElementById("authForm").addEventListener("submit", async e=>{
   e.preventDefault();
   const err = document.getElementById("authErr");
@@ -607,22 +625,23 @@ document.getElementById("authForm").addEventListener("submit", async e=>{
   const onCodeStep = !document.getElementById("stepCode").hidden;
   if(!onCodeStep){
     const email = document.getElementById("authEmail").value.trim().toLowerCase();
+    const password = document.getElementById("authPass").value;
     if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-    if(error){
-      if(/after \d+ second/i.test(error.message)){
-        err.textContent = "One code per minute — give it 60 seconds, then try again.";
-      } else if(/rate limit/i.test(error.message)){
-        err.textContent = "The sign-in email service has hit its hourly limit. Ask Owen for a sign-in code (he can make one instantly), or wait an hour and try again.";
-      } else {
-        err.textContent = "Couldn't send the code — try again in a minute.";
+    if(password.length < 6){ err.textContent = "Password needs at least 6 characters."; return; }
+    if(authMode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) err.textContent = "Wrong email or password. New here? Use Request access. Forgotten it? Ask an admin for a sign-in code.";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error){
+        err.textContent = /registered|exists/i.test(error.message)
+          ? "That email already has an account — sign in instead."
+          : "Couldn't create the account — try again.";
+      } else if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0){
+        err.textContent = "That email already has an account — sign in instead.";
       }
-      return;
+      // success: session arrives via onAuthStateChange → pending-approval screen
     }
-    pendingEmail = email;
-    document.getElementById("stepEmail").hidden = true;
-    document.getElementById("stepCode").hidden = false;
-    document.getElementById("authCode").focus();
   } else {
     const token = document.getElementById("authCode").value.trim();
     if(!token){ err.textContent = "Enter the code from your email."; return; }
