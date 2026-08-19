@@ -354,6 +354,7 @@ tr.hovering td{background:var(--accent-soft);}
     </div>
     <div id="stepCode" hidden>
       <label for="authCode">Enter the code from your email</label>
+      <div class="sub" style="margin:0 0 6px; font-size:12px;">Requesting a new code cancels old ones — always use the newest email.</div>
       <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
       <button class="primary" type="submit">Sign in</button>
       <button type="button" class="linkish" id="authBack">Use a different email</button>
@@ -544,9 +545,13 @@ document.getElementById("authForm").addEventListener("submit", async e=>{
     if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
     const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if(error){
-      err.textContent = /rate/i.test(error.message)
-        ? "Too many code emails just now — wait a few minutes and try again."
-        : "Couldn't send the code — try again in a minute.";
+      if(/after \d+ second/i.test(error.message)){
+        err.textContent = "One code per minute — give it 60 seconds, then try again.";
+      } else if(/rate limit/i.test(error.message)){
+        err.textContent = "The sign-in email service has hit its hourly limit. Wait an hour and try again — or if you already have a code email, go back and use the code from the NEWEST one.";
+      } else {
+        err.textContent = "Couldn't send the code — try again in a minute.";
+      }
       return;
     }
     pendingEmail = email;
