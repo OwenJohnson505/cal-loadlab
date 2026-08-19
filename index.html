@@ -370,9 +370,10 @@ tr.hovering td{background:var(--accent-soft);}
 </div>
 
 <section class="panel" id="adminPanel" hidden>
-  <h2>Access requests</h2>
-  <div class="hint">People who verified a @cal.delivery email and are waiting for you to let them in.</div>
-  <div id="adminList"></div>
+  <h2>Access</h2>
+  <div class="hint">Everyone here has verified their @cal.delivery email with a sign-in code. Approve new requests, remove leavers, share admin.</div>
+  <div id="adminPending"></div>
+  <div id="adminMembers"></div>
 </section>
 
 <header>
@@ -573,20 +574,26 @@ document.getElementById("authBack").addEventListener("click", ()=>{
 document.getElementById("pendingSignOut").addEventListener("click", ()=>sb.auth.signOut());
 document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
 
-/* ---- admin approvals panel ---- */
+/* ---- admin access panel: approvals + member management ---- */
 async function refreshAdminPanel(){
-  const panel = document.getElementById("adminPanel");
-  const list = document.getElementById("adminList");
+  document.getElementById("adminPanel").hidden = false;
   const { data: rows } = await sb.from("loadlab_profiles")
-    .select("user_id,email,requested_at").eq("approved", false)
+    .select("user_id,email,approved,is_admin,requested_at")
     .order("requested_at", { ascending: true });
-  panel.hidden = false;
-  if(!rows || !rows.length){
-    list.innerHTML = '<div class="admin-empty">No one waiting. New requests appear here.</div>';
-    return;
-  }
-  list.innerHTML = "";
-  for(const r of rows){
+  renderAdminRows(rows || []);
+}
+function renderAdminRows(rows){
+  const me = sbSession ? sbSession.user.id : null;
+  const act = async (fn) => { await fn(); refreshAdminPanel(); };
+  const pendingBox = document.getElementById("adminPending");
+  const membersBox = document.getElementById("adminMembers");
+  const pending = rows.filter(r => !r.approved);
+  const members = rows.filter(r => r.approved);
+
+  pendingBox.innerHTML = pending.length
+    ? '<div class="fhead" style="grid-template-columns:1fr;"><span>Waiting for approval</span></div>'
+    : '<div class="admin-empty">No one waiting — new sign-ins appear here for approval.</div>';
+  for(const r of pending){
     const div = document.createElement("div");
     div.className = "approval-row";
     div.innerHTML = `<span class="em"></span><span class="when"></span>
@@ -596,17 +603,41 @@ async function refreshAdminPanel(){
       </span>`;
     div.querySelector(".em").textContent = r.email;
     div.querySelector(".when").textContent = "requested " + new Date(r.requested_at).toLocaleString("en-GB");
-    div.querySelector(".approve").addEventListener("click", async ()=>{
+    div.querySelector(".approve").addEventListener("click", ()=>act(async ()=>{
       await sb.from("loadlab_profiles")
         .update({ approved: true, approved_at: new Date().toISOString() })
         .eq("user_id", r.user_id);
-      refreshAdminPanel();
-    });
-    div.querySelector(".reject").addEventListener("click", async ()=>{
+    }));
+    div.querySelector(".reject").addEventListener("click", ()=>act(async ()=>{
       await sb.from("loadlab_profiles").delete().eq("user_id", r.user_id);
-      refreshAdminPanel();
-    });
-    list.appendChild(div);
+    }));
+    pendingBox.appendChild(div);
+  }
+
+  membersBox.innerHTML = '<div class="fhead" style="grid-template-columns:1fr; margin-top:12px;"><span>Has access (' + members.length + ')</span></div>';
+  for(const r of members){
+    const isMe = r.user_id === me;
+    const div = document.createElement("div");
+    div.className = "approval-row";
+    div.innerHTML = `<span class="em"></span><span class="when"></span>
+      <span class="actions">
+        <button class="ghost adminToggle"></button>
+        <button class="ghost reject revoke">Remove</button>
+      </span>`;
+    div.querySelector(".em").textContent = r.email + (r.is_admin ? " · admin" : "") + (isMe ? " (you)" : "");
+    div.querySelector(".when").textContent = "";
+    const tog = div.querySelector(".adminToggle");
+    tog.textContent = r.is_admin ? "Remove admin" : "Make admin";
+    if(isMe){ tog.remove(); div.querySelector(".revoke").remove(); }  // can't lock yourself out
+    else {
+      tog.addEventListener("click", ()=>act(async ()=>{
+        await sb.from("loadlab_profiles").update({ is_admin: !r.is_admin }).eq("user_id", r.user_id);
+      }));
+      div.querySelector(".revoke").addEventListener("click", ()=>act(async ()=>{
+        await sb.from("loadlab_profiles").delete().eq("user_id", r.user_id);
+      }));
+    }
+    membersBox.appendChild(div);
   }
 }
 
