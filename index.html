@@ -335,6 +335,22 @@ tr.hovering td{background:var(--accent-soft);}
 .access-head{display:flex; justify-content:space-between; align-items:baseline; gap:12px;}
 #accessBtn{padding:4px 12px; font-size:11.5px;}
 #accessBtn.attn{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-soft);}
+#howModal{position:fixed; inset:0; z-index:70; display:flex; align-items:flex-start; justify-content:center; padding:6vh 20px;}
+#howModal[hidden]{display:none;}
+.linklike{
+  border:0; background:none; cursor:pointer; font:inherit; font-size:inherit;
+  color:var(--accent-ink); text-decoration:underline; text-underline-offset:3px; padding:0;
+}
+.linklike:hover{color:var(--accent);}
+.how-body p{margin:0 0 11px; font-size:13.5px; line-height:1.55; color:var(--muted);}
+.how-body b{color:var(--ink); font-weight:600;}
+.note-fold{margin-top:2px;}
+.note-fold summary{
+  cursor:pointer; font-size:12.5px; color:var(--faint); padding:4px 11px;
+  list-style-position:inside;
+}
+.note-fold summary:hover{color:var(--ink);}
+.note-fold[open] summary{color:var(--muted);}
 .approval-row{
   display:flex; align-items:center; gap:12px; padding:9px 2px;
   border-bottom:1px solid var(--line2); font-size:13.5px;
@@ -391,19 +407,34 @@ tr.hovering td{background:var(--accent-soft);}
 <header>
   <div>
     <h1>Load Lab</h1>
-    <div class="sub">Vehicle size selector — paste the customer's email, check the parsed freight, and the smallest vehicle it genuinely fits goes green. Walls are walls: no leeway is ever added.</div>
+    <div class="sub">Paste the email · check the freight · get the vehicle. <button type="button" class="linklike" id="howBtn">How it works</button></div>
   </div>
-  <div class="hdr-note">Vehicle guide: Cal North fleet, internal load space (cm)<br>Fit rule: strict — a 121&nbsp;cm pallet does not go in a 120&nbsp;cm gap
+  <div class="hdr-note">
     <div class="whoami"><button type="button" class="ghost" id="accessBtn" hidden>Access</button><span id="whoami"></span><button type="button" id="signOut" hidden>sign out</button></div>
   </div>
 </header>
+
+<div id="howModal" hidden>
+  <div class="access-backdrop" id="howBackdrop"></div>
+  <section class="panel access-card">
+    <div class="access-head"><h2>How Load Lab works</h2><button class="ghost" id="howClose" type="button">Close</button></div>
+    <div class="how-body">
+      <p><b>1 · Paste the email.</b> Freight lines straight from the customer, any format. An AI reader extracts the freight; a pattern reader takes over if it's unavailable. Nothing you paste is stored.</p>
+      <p><b>2 · Check the freight.</b> Amber boxes are guesses — the email didn't say, so fix them before quoting. Toggles: <b>stack</b> = other freight may sit on top of it · <b>tip</b> = may lie on its side · <b>drop</b> = delivery order on multi-drop jobs (drop 1 loads last, by the doors).</p>
+      <p><b>3 · How is it loaded?</b> The freight decides what's realistic: methods that can't work are crossed out (nobody handballs a 380&nbsp;kg pallet), and the likely one is pre-selected. Forklift + long heavy pieces means side-loading through a curtain-sider — curtain bodies run Luton to Artic.</p>
+      <p><b>The verdict.</b> The smallest vehicle the load genuinely fits, named with the body spec your DM logs use (Luton Curtain, 7.5T Tail). The packer is strict: walls are walls — a 121&nbsp;cm pallet does not go in a 120&nbsp;cm gap, and no leeway is ever added. Sizes are the Cal North fleet's internal load space; payloads and pallet ratings come from the vehicle guide (table under step 3).</p>
+      <p><b>The loading model.</b> Pallets and boxes floor-load in rows front to back — several layouts are tried and the best wins. Pallets double-stack on stackable pallet tops when the floor runs out (always flagged for confirmation). Boxes only ever sit on stackable freight. Lengths lie on the floor down the side or in the rear gap, and ride on top only where stackable freight fully supports them — nothing floats, nothing loads diagonally.</p>
+      <p><b>The stats.</b> LDM = loading metres, the floor length the load occupies. Weight aft = how far back the load's centre of gravity sits — high numbers mean brief the driver to load heavy freight at the bulkhead.</p>
+      <p><b>Trust rule.</b> If it says FITS, a driver can load it that way. A tight hand-load might squeeze into less — but it will never suggest a vehicle the freight can't physically enter.</p>
+    </div>
+  </section>
+</div>
 
 <div class="lab">
   <!-- ============ LEFT: input ============ -->
   <div class="col-left">
     <section class="panel">
       <h2>1 · Paste the email</h2>
-      <div class="hint">Freight lines straight from the customer — quantities, sizes, weights in any format.</div>
       <textarea id="emailBox" spellcheck="false" style="min-height:104px;" placeholder="e.g.&#10;4 pallets 1200 x 1000 x 1800mm, 380kg each&#10;2 boxes 800 x 600 x 500&#10;10 lengths of rail @ 4.2m"></textarea>
       <div class="paste-row">
         <button class="primary" id="btnParse">Read email</button>
@@ -424,7 +455,6 @@ tr.hovering td{background:var(--accent-soft);}
     <section class="panel">
       <div class="items-head">
         <h2>2 · Check the freight <span id="itemCount" class="mono" style="color:var(--faint); font-weight:500;"></span></h2>
-        <span class="hint" style="margin:0;">amber = guessed, fix before quoting</span>
       </div>
       <div class="fhead"><span>Qty</span><span>Type</span><span>L×W×H cm</span><span>kg ea.</span><span></span></div>
       <div id="itemsBody"></div>
@@ -439,7 +469,6 @@ tr.hovering td{background:var(--accent-soft);}
 
     <section class="panel" id="loadingPanel">
       <h2>3 · How is it loaded?</h2>
-      <div class="hint">Decides the body type as much as the sizes do — forklift, tail lift or by hand.</div>
       <div class="chips" id="loadChips">
         <button data-m="unsure" aria-pressed="true">Not sure yet</button>
         <button data-m="forklift" aria-pressed="false">Forklift</button>
@@ -503,12 +532,6 @@ tr.hovering td{background:var(--accent-soft);}
   </div>
 </div>
 
-<p class="footnote">
-  Loading model: pallets and boxes are floor-loaded in rows front-to-back with strict wall-to-wall arithmetic; several row layouts are tried — including pallets nose-to-tail leaving a floor corridor — and the plan that keeps lengths flat on the deck wins.
-  Pallets double-stack on stackable pallet tops when the floor runs out (flagged for confirmation); boxes overflow onto stackable freight only; boxes and lengths marked "tip" may lie on their side; lengths ride on top only where stackable freight of full height runs underneath them for their whole length — nothing is ever left floating, and nothing loads diagonally.
-  The packer is deliberately conservative: if it says Fits, a driver can load it that way; a tighter hand-load might squeeze into less, but it will never suggest a vehicle the freight cannot physically enter.
-  Payload and internal dimensions from the Cal vehicle size guide.
-</p>
 
 <script>
 "use strict";
@@ -610,7 +633,15 @@ document.getElementById("accessBtn").addEventListener("click", ()=>{
 });
 document.getElementById("accessClose").addEventListener("click", ()=>{ document.getElementById("accessModal").hidden = true; });
 document.getElementById("accessBackdrop").addEventListener("click", ()=>{ document.getElementById("accessModal").hidden = true; });
-document.addEventListener("keydown", e=>{ if(e.key === "Escape") document.getElementById("accessModal").hidden = true; });
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape"){
+    document.getElementById("accessModal").hidden = true;
+    document.getElementById("howModal").hidden = true;
+  }
+});
+document.getElementById("howBtn").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = false; });
+document.getElementById("howClose").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = true; });
+document.getElementById("howBackdrop").addEventListener("click", ()=>{ document.getElementById("howModal").hidden = true; });
 function renderAdminRows(rows){
   const me = sbSession ? sbSession.user.id : null;
   const act = async (fn) => { await fn(); refreshAdminPanel(); };
@@ -1447,7 +1478,13 @@ function recalc(){
   }
   const LV_ORDER = {stop:0, warn:1, ask:2, info:3};
   notes.sort((a,b)=>LV_ORDER[a.lv]-LV_ORDER[b.lv]);
-  $("#notes").innerHTML = notes.map(n=>`<div class="note ${n.lv}">${NOTE_ICON[n.lv]}<span>${n.t}</span></div>`).join("");
+  const noteHtml = n=>`<div class="note ${n.lv}">${NOTE_ICON[n.lv]}<span>${n.t}</span></div>`;
+  const urgent = notes.filter(n=>n.lv !== "info");
+  const folded = notes.filter(n=>n.lv === "info");
+  $("#notes").innerHTML = urgent.map(noteHtml).join("") +
+    (folded.length
+      ? `<details class="note-fold"><summary>Assumptions &amp; checks (${folded.length})</summary>${folded.map(noteHtml).join("")}</details>`
+      : "");
   $("#copyPlan").disabled = !rec;
   // rail
   const rail = $("#rail"); rail.innerHTML = "";
