@@ -255,6 +255,36 @@ body.manual-off .panel.manual{display:none;}
 .chat-row input{flex:1;}
 .chat-hint{color:var(--faint); font-size:11.5px; margin-top:7px; line-height:1.5;}
 
+/* ---- project gate ---- */
+#projGate{position:fixed; inset:0; z-index:50; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; overflow:auto;}
+#projGate[hidden]{display:none;}
+.proj-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(480px,100%);}
+.proj-card h1{font-size:24px; margin-bottom:2px;}
+.proj-card .sub{margin-bottom:18px;}
+.proj-big{
+  display:block; width:100%; text-align:left; cursor:pointer; font:inherit;
+  background:var(--surface2); border:1px solid var(--line); border-radius:11px;
+  padding:14px 16px; margin-bottom:9px; color:var(--ink);
+  transition:border-color .15s ease, background .15s ease;
+}
+.proj-big:hover{border-color:var(--accent); background:var(--accent-soft);}
+.proj-big b{display:block; font-size:14.5px; font-weight:700; margin-bottom:2px;}
+.proj-big span{font-size:12.5px; color:var(--muted);}
+.wiz-q{font-size:14px; font-weight:600; margin:4px 0 12px;}
+.proj-row{display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--line2);}
+.proj-row .pn{font-weight:600; font-size:13.5px; cursor:pointer;}
+.proj-row .pn:hover{color:var(--accent-ink); text-decoration:underline;}
+.proj-row .pg{font-size:11px; color:var(--faint);}
+.proj-row .actions{margin-left:auto; display:flex; gap:6px; align-items:center;}
+.proj-row .del{border:0; background:none; color:var(--faint); cursor:pointer; font-size:14px;}
+.proj-row .del:hover{color:var(--bad);}
+.proj-empty{color:var(--faint); font-size:13px; padding:10px 0;}
+#projChip{font-size:12px; color:var(--muted); background:var(--surface2); border:1px solid var(--line); border-radius:99px; padding:5px 12px;}
+#projChip b{color:var(--ink);}
+#projChip .sv{color:var(--good); font-size:11px;}
+#wizName{width:100%; margin-bottom:12px;}
+#wizNameNext{width:100%;}
+
 /* ---- auth gate (shared with Load Lab) ---- */
 #authGate{position:fixed; inset:0; z-index:60; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
 .auth-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(360px,100%);}
@@ -307,13 +337,53 @@ body.manual-off .panel.manual{display:none;}
   </div>
 </div>
 
+<div id="projGate" hidden>
+  <div class="proj-card" id="projHome" hidden>
+    <h1>Routing</h1>
+    <div class="sub">Work here lives in projects — everything you apply is saved as you go, and you can come back to it any time.</div>
+    <button class="proj-big" id="projNew" type="button"><b>Start a new project</b><span>Route or price a fresh set of orders</span></button>
+    <button class="proj-big" id="projOpen" type="button"><b>Open a saved project</b><span id="projCount">Routing you've done before</span></button>
+    <button class="linkish" id="projSkip" type="button" hidden>Back to what I was doing</button>
+    <button class="linkish" id="projScratch" type="button">Just experiment — don't save anything</button>
+  </div>
+  <div class="proj-card" id="projList" hidden>
+    <h1>Saved projects</h1>
+    <div class="sub">Click one to pick it up where you left off.</div>
+    <div id="projListRows"></div>
+    <button class="linkish" id="projListBack" type="button">Back</button>
+  </div>
+  <div class="proj-card" id="projWiz" hidden>
+    <h1>New project</h1>
+    <div id="wizStep1">
+      <div class="wiz-q">What's the goal?</div>
+      <button class="proj-big" type="button" data-goal="existing_customer"><b>Routing for an existing customer</b><span>Plan real routes, vehicles and day groupings for work we already do</span></button>
+      <button class="proj-big" type="button" data-goal="prospect_pricing"><b>Pricing simulation for a prospect</b><span>Model what we'd charge and what they'd save against their network</span></button>
+    </div>
+    <div id="wizStep2" hidden>
+      <div class="wiz-q">Who's it for?</div>
+      <input class="txt" id="wizName" placeholder="Customer / prospect name" maxlength="60">
+      <button class="primary" id="wizNameNext" type="button">Continue</button>
+    </div>
+    <div id="wizStep3" hidden>
+      <div class="wiz-q">Do you have their current rates to compare against?</div>
+      <button class="proj-big" type="button" data-rates="yes"><b>Yes</b><span>They're in the data, or I'll give them to the assistant</span></button>
+      <button class="proj-big" type="button" data-rates="no"><b>Not yet</b><span>We'll model with assumptions we can tweak later</span></button>
+    </div>
+    <button class="linkish" id="wizBack" type="button">Back</button>
+  </div>
+</div>
+
 <div class="main">
 <header>
   <div>
     <h1>Routing</h1>
     <div class="sub">Give it the data, tell it what you want — plotting, pricing, splitting into routes, comparing against the network. It asks when it needs more detail.</div>
   </div>
-  <button class="ghost" id="manualToggle" type="button" aria-pressed="false">Manual controls</button>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <span id="projChip" hidden></span>
+    <button class="ghost" id="projBtn" type="button">Projects</button>
+    <button class="ghost" id="manualToggle" type="button" aria-pressed="false">Manual controls</button>
+  </div>
 </header>
 
 <div class="layout">
@@ -450,6 +520,7 @@ async function setSession(s){
   }
   if(!prof.approved){ showGate("pending"); return; }
   showGate(null);
+  if(!activeProject && !scratchMode) showProj("home");
   setTimeout(()=>{ if(map) map.invalidateSize(); }, 60);
 }
 sb.auth.getSession().then(({data:{session}})=>setSession(session));
@@ -518,6 +589,193 @@ document.getElementById("authBack").addEventListener("click", ()=>{
 });
 document.getElementById("pendingSignOut").addEventListener("click", ()=>sb.auth.signOut());
 document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
+
+/* ================= projects ================= */
+let activeProject = null;   // {id, name, goal, has_rates}
+let scratchMode = false;    // experimenting without saving
+let restoring = false;
+let wiz = {};
+
+function showProj(view){    // "home" | "list" | "wiz" | null
+  document.getElementById("projGate").hidden = !view;
+  ["projHome","projList","projWiz"].forEach(id=>document.getElementById(id).hidden = true);
+  if(view) document.getElementById("proj"+view[0].toUpperCase()+view.slice(1)).hidden = false;
+  if(view === "home"){
+    document.getElementById("projSkip").hidden = !(activeProject || scratchMode);
+    sb.from("loadlab_projects").select("id", {count:"exact", head:true}).then(({count})=>{
+      document.getElementById("projCount").textContent = count ? `${count} saved project${count===1?"":"s"}` : "Nothing saved yet";
+    });
+  }
+  if(view === "wiz"){
+    wiz = {};
+    document.getElementById("wizStep1").hidden = false;
+    document.getElementById("wizStep2").hidden = true;
+    document.getElementById("wizStep3").hidden = true;
+    document.getElementById("wizName").value = "";
+  }
+}
+document.getElementById("projBtn").addEventListener("click", ()=>showProj("home"));
+document.getElementById("projNew").addEventListener("click", ()=>showProj("wiz"));
+document.getElementById("projOpen").addEventListener("click", renderProjList);
+document.getElementById("projListBack").addEventListener("click", ()=>showProj("home"));
+document.getElementById("projSkip").addEventListener("click", ()=>showProj(null));
+document.getElementById("projScratch").addEventListener("click", ()=>{
+  scratchMode = true; activeProject = null; renderProjChip(); showProj(null);
+});
+document.getElementById("wizBack").addEventListener("click", ()=>{
+  if(!document.getElementById("wizStep3").hidden){ document.getElementById("wizStep3").hidden=true; document.getElementById("wizStep2").hidden=false; }
+  else if(!document.getElementById("wizStep2").hidden){ document.getElementById("wizStep2").hidden=true; document.getElementById("wizStep1").hidden=false; }
+  else showProj("home");
+});
+document.querySelectorAll("#wizStep1 [data-goal]").forEach(b=>b.addEventListener("click", ()=>{
+  wiz.goal = b.dataset.goal;
+  document.getElementById("wizStep1").hidden = true;
+  document.getElementById("wizStep2").hidden = false;
+  document.getElementById("wizName").focus();
+}));
+const wizNameGo = ()=>{
+  const n = document.getElementById("wizName").value.trim();
+  if(!n) return;
+  wiz.name = n;
+  if(wiz.goal === "prospect_pricing"){
+    document.getElementById("wizStep2").hidden = true;
+    document.getElementById("wizStep3").hidden = false;
+  } else {
+    wiz.has_rates = null;
+    createProject();
+  }
+};
+document.getElementById("wizNameNext").addEventListener("click", wizNameGo);
+document.getElementById("wizName").addEventListener("keydown", e=>{ if(e.key==="Enter") wizNameGo(); });
+document.querySelectorAll("#wizStep3 [data-rates]").forEach(b=>b.addEventListener("click", ()=>{
+  wiz.has_rates = b.dataset.rates === "yes";
+  createProject();
+}));
+
+async function createProject(){
+  const { data, error } = await sb.from("loadlab_projects")
+    .insert({ name: wiz.name, goal: wiz.goal, has_rates: wiz.has_rates })
+    .select("id").single();
+  if(error){ console.error(error); return; }
+  projectReset();
+  activeProject = { id: data.id, name: wiz.name, goal: wiz.goal, has_rates: wiz.has_rates };
+  scratchMode = false;
+  renderProjChip(); showProj(null);
+  const m = wiz.goal === "existing_customer"
+    ? `New project for <b>${esc(wiz.name)}</b> — routing work for an existing customer. Drop their order data in and tell me how you want it run.`
+    : (wiz.has_rates
+      ? `New project — pricing simulation for <b>${esc(wiz.name)}</b>, with their current rates to compare. Drop the order data in; if it includes what they pay now I'll use the real figures, otherwise just tell me their rates.`
+      : `New project — pricing simulation for <b>${esc(wiz.name)}</b>, no current rates yet. Drop the order data in and I'll model with assumptions you can tweak in the Applied feed.`);
+  chatMsg("bot", m);
+}
+function renderProjChip(){
+  const chip = document.getElementById("projChip");
+  if(activeProject){
+    chip.hidden = false;
+    chip.innerHTML = `<b>${esc(activeProject.name)}</b> <span class="sv" id="saveNote"></span>`;
+  } else if(scratchMode){
+    chip.hidden = false;
+    chip.innerHTML = `scratch — not saved`;
+  } else chip.hidden = true;
+}
+function projectReset(){
+  resetAll();
+  document.getElementById("chatLog").innerHTML = "";
+  chatHistory = [];
+  clearRoute();
+}
+
+async function renderProjList(){
+  showProj("list");
+  const box = document.getElementById("projListRows");
+  box.innerHTML = `<div class="proj-empty">Loading…</div>`;
+  const { data } = await sb.from("loadlab_projects")
+    .select("id,name,goal,has_rates,updated_at").order("updated_at", { ascending:false });
+  if(!data || !data.length){ box.innerHTML = `<div class="proj-empty">Nothing saved yet — start a new project.</div>`; return; }
+  const glabel = p => p.goal === "prospect_pricing" ? ("Prospect pricing" + (p.has_rates===false ? " · no rates yet" : "")) : "Existing customer";
+  box.innerHTML = data.map(p=>`<div class="proj-row">
+    <div><div class="pn" data-open="${p.id}">${esc(p.name)}</div>
+    <div class="pg">${glabel(p)} · ${new Date(p.updated_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"})} ${new Date(p.updated_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div></div>
+    <div class="actions"><button class="del" data-del="${p.id}" title="Delete project">✕</button></div>
+  </div>`).join("");
+  box.querySelectorAll("[data-open]").forEach(el=>el.addEventListener("click", ()=>openProject(el.dataset.open)));
+  box.querySelectorAll("[data-del]").forEach(el=>el.addEventListener("click", async ()=>{
+    if(!confirm("Delete this project? This can't be undone.")) return;
+    await sb.from("loadlab_projects").delete().eq("id", el.dataset.del);
+    if(activeProject && activeProject.id === el.dataset.del){ activeProject=null; renderProjChip(); }
+    renderProjList();
+  }));
+}
+
+function serializeProject(){
+  return {
+    v:1, headers, extraCols, mapping, sources,
+    rows: rows.map(r=>{ const o={_src:r._src, _tags:r._tags}; for(const h of [...headers, ...extraCols]) o[h]=r[h]; return o; }),
+    netRules, start: startPin, filtersChat: filters.chat,
+    scenarios: scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool, totals:s.totals, days:s.days, orders:s.orders})),
+    chatHistory, fleetObjective,
+    fpNetRate: document.getElementById("fpNetRate").value,
+  };
+}
+let saveTimer=null;
+function scheduleSave(){
+  if(!activeProject || restoring) return;
+  clearTimeout(saveTimer);
+  const note=document.getElementById("saveNote");
+  if(note) note.textContent="saving…";
+  saveTimer=setTimeout(async ()=>{
+    try{
+      await sb.from("loadlab_projects")
+        .update({ data: serializeProject(), updated_at: new Date().toISOString() })
+        .eq("id", activeProject.id);
+      const n=document.getElementById("saveNote");
+      if(n){ n.textContent="saved ✓"; setTimeout(()=>{ if(n.textContent==="saved ✓") n.textContent=""; }, 2500); }
+    }catch(e){ console.error("save", e); }
+  }, 2500);
+}
+
+async function openProject(id){
+  const { data: row, error } = await sb.from("loadlab_projects")
+    .select("id,name,goal,has_rates,data").eq("id", id).single();
+  if(error || !row){ console.error(error); return; }
+  restoring = true;
+  try{
+    projectReset();
+    activeProject = { id: row.id, name: row.name, goal: row.goal, has_rates: row.has_rates };
+    scratchMode = false;
+    renderProjChip(); showProj(null);
+    const d = row.data || {};
+    if(Array.isArray(d.headers) && d.headers.length){
+      headers = d.headers; extraCols = d.extraCols || []; mapping = d.mapping || {};
+      sources = d.sources || [];
+      rows = (d.rows || []).map((o,i)=>({ ...o, _i:i, _tags:o._tags || [] }));
+      netRules = d.netRules || { rate:null, rules:[] };
+      startPin = d.start || null;
+      filters.chat = d.filtersChat || [];
+      fleetObjective = d.fleetObjective || "saving";
+      if(d.fpNetRate) document.getElementById("fpNetRate").value = d.fpNetRate;
+      scenarios = (d.scenarios || []).map(s=>({...s}));
+      chatHistory = d.chatHistory || [];
+      deriveRowMeta(); applyLatLng();
+      renderSources(); buildFilters();
+      document.getElementById("filterPanel").hidden = false;
+      document.getElementById("fleetPanel").hidden = false;
+      document.getElementById("routePanel").hidden = false;
+      document.getElementById("tablePanel").hidden = false;
+      updateChargeNote();
+      refresh(); geocodeAll();
+      drawStartPin(); renderScenarios(); renderStateFeed();
+      // replay the conversation
+      for(const h of chatHistory){
+        if(h.user) chatMsg("user", esc(h.user));
+        if(h.assistant) chatMsg("bot", esc(h.assistant.split(" [results] ")[0]));
+      }
+      chatMsg("bot", `Picked up <b>${esc(row.name)}</b> where you left off — ${rows.length.toLocaleString()} orders loaded. Anything applied is in the feed below; plans can be re-run from there or just ask me.`);
+    } else {
+      chatMsg("bot", `Opened <b>${esc(row.name)}</b> — no data in it yet. Drop the spreadsheets in to get going.`);
+    }
+  } finally { restoring = false; }
+}
 
 /* ================= data model ================= */
 let rows = [];            // [{_i,_src,_pc,_ll,_dateISO,_tags:[], <original cols>}]
@@ -1187,6 +1445,7 @@ function refresh(){
   drawTable(vis);
   document.getElementById("routeBtn").textContent =
     `Route visible stops (${new Set(vis.filter(r=>r._ll).map(r=>r._ll.join(","))).size})`;
+  if(typeof scheduleSave === "function") scheduleSave();
 }
 
 /* ---------- routing (OSRM) ---------- */
@@ -1299,6 +1558,7 @@ function workspaceState(){
     has_plan: !!fleetPlan,
     last_plan: fleetPlan ? {days:fleetPlan.days.length, ...roundTotals(totalsOf(fleetPlan.days))} : null,
     scenarios: scenarios.map(s=>({label:s.label, ...roundTotals(s.totals)})),
+    project: activeProject ? { goal:activeProject.goal, customer:activeProject.name, has_current_rates:activeProject.has_rates } : null,
   };
 }
 function roundTotals(t){
@@ -1468,6 +1728,7 @@ async function executeOps(ops){
     document.getElementById("fpStatus").textContent = "Scenarios done — comparison below.";
   }
   renderStateFeed();
+  scheduleSave();
   return { did: did.filter(Boolean), results: resultBits.join("<br>") };
 }
 function applyOp(op){
@@ -2040,6 +2301,7 @@ async function runFleetPlan(){
   document.getElementById("fpCsv").hidden=false;
   renderFleetPlan();
   renderStateFeed();
+  scheduleSave();
 }
 
 /* --- scenarios: fleet-plan a labelled subset without touching the page filters --- */
@@ -2239,6 +2501,7 @@ function scheduleRerun(){
     }finally{
       document.getElementById("feedStatus").textContent="";
       renderStateFeed();
+      scheduleSave();
     }
   }, 600);
 }
