@@ -169,6 +169,31 @@ input.txt:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
 .route-res li{margin-bottom:2px;}
 .route-err{color:var(--bad); font-size:12.5px; margin-top:8px;}
 
+/* ---- fleet plan ---- */
+.kpis{display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 4px;}
+.kpi{flex:1 1 130px; background:var(--surface2); border-radius:10px; padding:10px 13px;}
+.kpi .v{font-family:"IBM Plex Mono",monospace; font-size:19px; font-weight:600; letter-spacing:-0.02em;}
+.kpi .l{font-size:11px; color:var(--faint); margin-top:2px;}
+.kpi.good .v{color:var(--good);}
+.kpi.bad .v{color:var(--bad);}
+.rates summary{cursor:pointer; font-size:12.5px; color:var(--muted); padding:8px 0 2px;}
+.rates summary:hover{color:var(--ink);}
+.rates-grid{display:grid; grid-template-columns:26px 1.2fr 74px 74px 74px 74px; gap:4px 8px; align-items:center; margin-top:8px; font-size:12.5px;}
+.rates-grid .rh{font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--faint);}
+.rates-grid input[type="number"]{width:100%; font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:5px 7px;}
+.rates-grid .pl{color:var(--faint); font-size:11.5px; font-family:"IBM Plex Mono",monospace;}
+.rates-globals{display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:12px; font-size:12px; color:var(--muted); align-items:center;}
+.rates-globals input{width:70px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:5px 7px;}
+.daytbl tr.sel td{background:var(--accent-soft);}
+.rt-group td{background:var(--surface2); font-weight:600; cursor:default;}
+.rt-group .veh{color:var(--accent-ink);}
+.rt-sub td{color:var(--muted); cursor:default;}
+.rt-sub select{font:inherit; font-size:11.5px; color:var(--muted); background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:2px 4px;}
+.netpile-h{font-size:12px; font-weight:600; color:var(--faint); letter-spacing:.06em; text-transform:uppercase; margin:14px 0 6px;}
+.pos{color:var(--good);} .neg{color:var(--bad);}
+#fpPin[aria-pressed="true"]{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-soft);}
+.fp-note{color:var(--faint); font-size:11.5px; margin-top:10px; line-height:1.5;}
+
 /* ---- table ---- */
 .tblwrap{overflow:auto; max-height:440px; border:1px solid var(--line2); border-radius:9px;}
 table{border-collapse:collapse; width:100%; font-size:12.5px;}
@@ -296,8 +321,39 @@ td.num{font-family:"IBM Plex Mono",monospace; text-align:right;}
       <div class="map-legend" id="legend"></div>
     </section>
 
+    <section class="panel" id="fleetPanel" hidden>
+      <h2>Fleet plan — cheapest way to run it</h2>
+      <div class="hint">Splits the visible orders into vehicle routes from your start point, one plan per collection day.
+        Each stop is kept only while running it ourselves beats the network price — the rest stays with the network.
+        The smallest vehicle that carries each route's weight is chosen from your rates below.</div>
+      <div class="route-row">
+        <input id="fpStart" class="txt" placeholder="Start postcode" style="width:160px">
+        <button class="ghost" id="fpPin" type="button" aria-pressed="false">📍 Pin start on map</button>
+        <label>network £/parcel <input id="fpNetRate" class="txt" type="number" step="0.05" value="3.00" style="width:80px"></label>
+        <span class="fp-note" id="fpChargeNote" style="margin:0"></span>
+      </div>
+      <div class="route-row" style="margin-top:8px">
+        <div class="chips" id="fpObj">
+          <button type="button" data-obj="saving" aria-pressed="true">Max saving</button>
+          <button type="button" data-obj="volume" aria-pressed="false">Max volume</button>
+        </div>
+        <button class="primary" id="fpRun" type="button">Plan the fleet</button>
+        <button class="ghost" id="fpClear" type="button" hidden>Clear plan</button>
+        <button class="ghost" id="fpCsv" type="button" hidden>Download CSV</button>
+      </div>
+      <details class="rates">
+        <summary>Vehicle rates &amp; day settings</summary>
+        <div id="ratesBox"></div>
+      </details>
+      <div class="ai-status" id="fpStatus"></div>
+      <div id="fpOut"></div>
+      <div class="fp-note">Mileage is estimated (straight-line × 1.3 at 32 mph) so the optimiser can test thousands of combinations instantly.
+        Use “Single route” below for exact road miles on a route you've settled on.
+        Starter rates are placeholders — open the rates panel and put your real figures in; they're remembered on this computer.</div>
+    </section>
+
     <section class="panel" id="routePanel" hidden>
-      <h2>Plan a route</h2>
+      <h2>Single route — exact road miles</h2>
       <div class="hint">Routes the stops currently showing on the map (one stop per postcode), shortest order first, via real roads.</div>
       <div class="route-row">
         <input class="txt" id="routeStart" placeholder="Start postcode (optional)" style="width:190px;">
@@ -504,8 +560,10 @@ async function afterImport(){
   buildFilters();
   document.getElementById("filterPanel").hidden = false;
   document.getElementById("chatPanel").hidden = false;
+  document.getElementById("fleetPanel").hidden = false;
   document.getElementById("routePanel").hidden = false;
   document.getElementById("tablePanel").hidden = false;
+  updateChargeNote();
   refresh();
   geocodeAll();          // async — refreshes map as batches land
   aiCheckColumns();      // async — refines mapping
@@ -527,7 +585,8 @@ function resetAll(){
   rows=[]; headers=[]; mapping={}; sources=[]; extraCols=[];
   filters={chips:{},num:{},search:{},tags:new Set(),chat:[]};
   document.getElementById("srcList").innerHTML="";
-  ["filterPanel","chatPanel","routePanel","tablePanel"].forEach(id=>document.getElementById(id).hidden=true);
+  ["filterPanel","chatPanel","fleetPanel","routePanel","tablePanel"].forEach(id=>document.getElementById(id).hidden=true);
+  clearFleetPlan();
   document.getElementById("statbar").hidden=true;
   markerLayer.clearLayers(); clearRoute();
   document.getElementById("legend").innerHTML="";
@@ -550,6 +609,7 @@ function heuristicMapping(){
     else if(datish) give(h,"date","date");
     else if(/weight|kg\b/.test(l) && numish) give(h,"weight","number");
     else if(/item|qty|quantity|pieces|pcs|parcels?\b/.test(l) && numish) give(h,"items","number");
+    else if(/charge$|price|cost|invoice|revenue|\bnet\b|£/.test(l) && numish) give(h,"charge","number");
     else if(/\bref|reference|consignment|order\s*no|order\s*id|job\s*no/.test(l)) give(h,"reference","text");
     else if(/consignee|customer|recipient|deliver\s*to|name/.test(l)) give(h,"consignee","text");
     else if(/^type$|freight\s*type|product\s*type/.test(l)) give(h,"type","category");
@@ -591,6 +651,7 @@ async function aiCheckColumns(){
       if(!prev || prev.role!==role || prev.kind!==c.kind){ mapping[c.name] = {role, kind:c.kind}; changed = true; }
     }
     if(changed){ deriveRowMeta(); buildFilters(); refresh(); geocodeAll(); }
+    updateChargeNote();
     setAiStatus("AI checked the columns ✓" + (out.note ? " — " + out.note : ""), "ok");
   }catch(e){
     console.error(e);
@@ -1185,6 +1246,658 @@ function applyOp(op){
   }
   return null;
 }
+
+/* ================= FLEET PLAN =================
+   The split engine is ported from the EMT split calculator (Owen's Cowork build):
+   competing greedy constructors + a savings/merge method, polished by a shared
+   local search with cluster rescue. Generalised here: per-vehicle-type rate cards,
+   route weight decides the smallest vehicle that fits, and each stop's "network
+   price" comes from a charge column in the sheet or a flat £/parcel. */
+
+const FLEET_DEFAULTS = {
+  vehicles: [
+    { name:"Small Van", payload:400,   on:true,  minCharge:35,  minMiles:10, perMile:1.10 },
+    { name:"SWB",       payload:800,   on:true,  minCharge:40,  minMiles:10, perMile:1.20 },
+    { name:"LWB",       payload:1200,  on:true,  minCharge:45,  minMiles:10, perMile:1.30 },
+    { name:"XLWB",      payload:1100,  on:true,  minCharge:50,  minMiles:10, perMile:1.40 },
+    { name:"Luton",     payload:1000,  on:true,  minCharge:55,  minMiles:10, perMile:1.50 },
+    { name:"7.5T",      payload:2500,  on:true,  minCharge:80,  minMiles:10, perMile:1.80 },
+    { name:"18T",       payload:9000,  on:true,  minCharge:120, minMiles:10, perMile:2.20 },
+    { name:"Artic",     payload:26000, on:true,  minCharge:180, minMiles:10, perMile:2.60 },
+  ],
+  perDrop:8, loadMins:30, stopMins:7, dayHours:8,
+};
+let SETTINGS;
+try{ SETTINGS = JSON.parse(localStorage.getItem("ll-fleet-settings-v1")); }catch(_){}
+if(!SETTINGS || !Array.isArray(SETTINGS.vehicles)) SETTINGS = JSON.parse(JSON.stringify(FLEET_DEFAULTS));
+function saveSettings(){ try{ localStorage.setItem("ll-fleet-settings-v1", JSON.stringify(SETTINGS)); }catch(_){} }
+
+function renderRates(){
+  const box = document.getElementById("ratesBox");
+  box.innerHTML = `<div class="rates-grid">
+    <span></span><span class="rh">Vehicle</span><span class="rh">Payload</span><span class="rh">Min £</span><span class="rh">Incl mi</span><span class="rh">£/mile</span>
+    ${SETTINGS.vehicles.map((v,i)=>`
+      <input type="checkbox" data-ri="${i}" data-k="on" ${v.on?"checked":""} title="Use this vehicle">
+      <span>${esc(v.name)}</span>
+      <span class="pl">${v.payload.toLocaleString()} kg</span>
+      <input class="txt" type="number" step="1" data-ri="${i}" data-k="minCharge" value="${v.minCharge}">
+      <input class="txt" type="number" step="1" data-ri="${i}" data-k="minMiles" value="${v.minMiles}">
+      <input class="txt" type="number" step="0.05" data-ri="${i}" data-k="perMile" value="${v.perMile}">`).join("")}
+  </div>
+  <div class="rates-globals">
+    <label>£/drop <input class="txt" type="number" step="0.5" data-g="perDrop" value="${SETTINGS.perDrop}"></label>
+    <label>load mins <input class="txt" type="number" step="5" data-g="loadMins" value="${SETTINGS.loadMins}"></label>
+    <label>mins/stop <input class="txt" type="number" step="1" data-g="stopMins" value="${SETTINGS.stopMins}"></label>
+    <label>driver day (h) <input class="txt" type="number" step="0.5" data-g="dayHours" value="${SETTINGS.dayHours}"></label>
+    <button class="ghost" id="ratesReset" type="button">Reset to starter figures</button>
+  </div>`;
+  box.querySelectorAll("[data-ri]").forEach(el=>el.addEventListener("change", ()=>{
+    const v = SETTINGS.vehicles[+el.dataset.ri];
+    if(el.dataset.k === "on") v.on = el.checked;
+    else v[el.dataset.k] = parseFloat(el.value)||0;
+    saveSettings();
+  }));
+  box.querySelectorAll("[data-g]").forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS[el.dataset.g] = parseFloat(el.value)||0;
+    saveSettings();
+  }));
+  document.getElementById("ratesReset").addEventListener("click", ()=>{
+    SETTINGS = JSON.parse(JSON.stringify(FLEET_DEFAULTS)); saveSettings(); renderRates();
+  });
+}
+renderRates();
+
+function fleetParams(){
+  const vs = SETTINGS.vehicles.filter(v=>v.on);
+  return {
+    vehicles: vs,
+    maxPayload: vs.length ? Math.max(...vs.map(v=>v.payload)) : 0,
+    perDrop: SETTINGS.perDrop, loadMins: SETTINGS.loadMins,
+    stopMins: SETTINGS.stopMins, dayMins: SETTINGS.dayHours*60,
+    netRate: parseFloat(document.getElementById("fpNetRate").value)||0,
+  };
+}
+// cheapest enabled vehicle that can carry `weight`, or null
+function costFor(miles, drops, weight, p){
+  let best = null;
+  for(const v of p.vehicles){
+    if(weight > v.payload) continue;
+    const c = v.minCharge + v.perMile*Math.max(0, miles - v.minMiles) + p.perDrop*drops;
+    if(!best || c < best.cost) best = { cost:c, vehicle:v.name, perMile:v.perMile };
+  }
+  return best;
+}
+const netOf = m => m.reduce((s,d)=>s+d.net,0);
+const wtOf  = m => m.reduce((s,d)=>s+d.weight,0);
+const pcOf  = m => m.reduce((s,d)=>s+d.parcels,0);
+
+/* --- offline distances: straight-line × 1.3, 32 mph (instant, nothing to hang on) --- */
+const ROAD_FACTOR = 1.3, AVG_MPH = 32;
+function hav(a,b){
+  const R=3958.8, r=Math.PI/180;
+  const dLa=(b.lat-a.lat)*r, dLo=(b.lng-a.lng)*r, la1=a.lat*r, la2=b.lat*r;
+  const h=Math.sin(dLa/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function buildMatrix(points){
+  const dist = points.map(a=>points.map(b=>hav(a,b)*ROAD_FACTOR));
+  return { dist, time: dist.map(row=>row.map(mi=>mi/AVG_MPH*60)) };
+}
+function fmtHMm(mins){ const h=Math.floor(mins/60), m=Math.round(mins%60); return h?`${h}h ${m}m`:`${m}m`; }
+const gbp = n => "£"+(Math.round(n*100)/100).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2});
+const gbp0 = n => "£"+Math.round(n).toLocaleString("en-GB");
+
+/* --- open-path optimiser: nearest-neighbour + 2-opt + Or-opt, start pinned at index 0 --- */
+function tourMiles(order,D){ let t=0; for(let i=0;i<order.length-1;i++) t+=D[order[i]][order[i+1]]; return t; }
+function optimise(stopIdx,D){
+  if(!stopIdx.length) return {miles:0,order:[0]};
+  let un=stopIdx.slice(), order=[0], cur=0;
+  while(un.length){ let bi=0,bd=Infinity; for(let i=0;i<un.length;i++){ const d=D[cur][un[i]]; if(d<bd){bd=d;bi=i;} }
+    cur=un[bi]; order.push(cur); un.splice(bi,1); }
+  let improved=true;
+  while(improved){ improved=false; const n=order.length;
+    for(let i=1;i<n;i++) for(let k=i+1;k<n;k++){
+      const a=order[i-1], b=order[i], c=order[k], hasD=(k+1<n), d=hasD?order[k+1]:-1;
+      const before=D[a][b]+(hasD?D[c][d]:0);
+      const after =D[a][c]+(hasD?D[b][d]:0);
+      if(after<before-1e-9){ let lo=i,hi=k; while(lo<hi){ [order[lo],order[hi]]=[order[hi],order[lo]]; lo++;hi--; } improved=true; }
+    }
+    const base=tourMiles(order,D);
+    for(let L=1;L<=3 && L<n-1;L++){
+      let done=false;
+      for(let i=1;i+L<=n && !done;i++){
+        const seg=order.slice(i,i+L), rest=order.slice(0,i).concat(order.slice(i+L));
+        let bestGain=1e-9,bestArr=null;
+        for(let j=1;j<=rest.length;j++) for(const s of [seg,seg.slice().reverse()]){
+          const cand=rest.slice(0,j).concat(s,rest.slice(j));
+          const gain=base-tourMiles(cand,D);
+          if(gain>bestGain){ bestGain=gain; bestArr=cand; }
+        }
+        if(bestArr){ order=bestArr; improved=true; done=true; }
+      }
+      if(done) break;
+    }
+  }
+  return {miles:tourMiles(order,D),order};
+}
+function routeDriveTime(opt,drops,Dt,p){
+  const o=opt.order; let drive=0;
+  for(let i=0;i<o.length-1;i++) drive+=Dt[o[i]][o[i+1]];
+  return p.loadMins + p.stopMins*drops + drive;
+}
+function bestInsert(order,c,D){
+  let best=Infinity,pos=order.length;
+  for(let pp=1;pp<=order.length;pp++){
+    const prev=order[pp-1];
+    const d=(pp<order.length) ? (D[prev][c]+D[c][order[pp]]-D[prev][order[pp]]) : D[prev][c];
+    if(d<best){ best=d; pos=pp; }
+  }
+  return {pos,delta:best};
+}
+function legDelta(order,c,pos,D){
+  const prev=order[pos-1];
+  return (pos<order.length) ? (D[prev][c]+D[c][order[pos]]-D[prev][order[pos]]) : D[prev][c];
+}
+
+function finalizeRoute(stops,Dd,Dt,p){
+  const opt=optimise(stops.map(d=>d.idx),Dd);
+  const byIdx={}; stops.forEach(d=>byIdx[d.idx]=d);
+  const ordered=opt.order.slice(1).map(ix=>byIdx[ix]).filter(Boolean);
+  const cf=costFor(opt.miles,ordered.length,wtOf(ordered),p);
+  const cost=cf?cf.cost:Infinity, net=netOf(ordered);
+  return {stops:ordered, parcels:pcOf(ordered), weight:wtOf(ordered), miles:opt.miles, drops:ordered.length,
+    time:routeDriveTime(opt,ordered.length,Dt,p), cost, net, saving:net-cost, vehicle:cf?cf.vehicle:"—"};
+}
+// remove the worst-value stops until the route beats the network (or dies)
+function trimToProfit(members,opt,netPile,Dd,p){
+  while(members.length){
+    const cf=costFor(opt.miles,members.length,wtOf(members),p);
+    if(cf && cf.cost<=netOf(members)) break;
+    const pm=cf?cf.perMile:1.5;
+    const ord=opt.order; let wi=-1,wNet=-Infinity;
+    for(let i=0;i<members.length;i++){
+      const pos=ord.indexOf(members[i].idx), prev=ord[pos-1], next=(pos+1<ord.length)?ord[pos+1]:-1;
+      const saved=(next>=0)?(Dd[prev][members[i].idx]+Dd[members[i].idx][next]-Dd[prev][next]):Dd[prev][members[i].idx];
+      const worth=pm*saved + 0 - members[i].net;
+      if(worth>wNet){ wNet=worth; wi=i; }
+    }
+    members[wi].reason="cheaper via the network"; netPile.push(members[wi]);
+    members.splice(wi,1); opt=optimise(members.map(d=>d.idx),Dd);
+  }
+  return opt;
+}
+function constructGreedy(drops,Dd,Dt,p,opts){
+  const seedBy=opts.seed||"near", growBy=opts.grow||"density";
+  let unassigned=drops.slice(), routes=[], netPile=[];
+  while(unassigned.length){
+    let si=0, sv=(seedBy==="near")?Infinity:-Infinity;
+    for(let i=0;i<unassigned.length;i++){
+      const v = seedBy==="parcels" ? unassigned[i].parcels : Dd[0][unassigned[i].idx];
+      if(seedBy==="near" ? v<sv : v>sv){ sv=v; si=i; }
+    }
+    const seed=unassigned.splice(si,1)[0];
+    if(seed.weight > p.maxPayload){ seed.reason="too heavy for the fleet"; netPile.push(seed); continue; }
+    let order=[0,seed.idx], members=[seed], miles=Dd[0][seed.idx], drive=Dt[0][seed.idx];
+    if(p.loadMins+p.stopMins+drive>p.dayMins){ seed.reason="beyond a working day from the start"; netPile.push(seed); continue; }
+    while(unassigned.length){
+      let best=-1,bestKey=-Infinity,bestPos=0,bestMi=0,bestTm=0;
+      const cfNow=costFor(miles,members.length,wtOf(members),p);
+      const costNow=cfNow?cfNow.cost:Infinity, timeNow=p.loadMins+p.stopMins*members.length+drive;
+      for(let i=0;i<unassigned.length;i++){
+        const cand=unassigned[i];
+        if(wtOf(members)+cand.weight > p.maxPayload) continue;
+        const c=cand.idx, ins=bestInsert(order,c,Dd), tmDelta=legDelta(order,c,ins.pos,Dt);
+        const newMiles=miles+ins.delta, newDrive=drive+tmDelta;
+        const newTime=p.loadMins+p.stopMins*(members.length+1)+newDrive;
+        if(newTime>p.dayMins) continue;
+        const cfNew=costFor(newMiles,members.length+1,wtOf(members)+cand.weight,p);
+        if(!cfNew) continue;
+        const marginal=cfNew.cost-costNow;
+        if(marginal>cand.net) continue;
+        let key;
+        if(growBy==="surplus") key=cand.net-marginal;
+        else if(growBy==="insertion") key=-ins.delta;
+        else key=cand.parcels/Math.max(1,newTime-timeNow);
+        if(key>bestKey){ bestKey=key; best=i; bestPos=ins.pos; bestMi=ins.delta; bestTm=tmDelta; }
+      }
+      if(best<0) break;
+      order.splice(bestPos,0,unassigned[best].idx); miles+=bestMi; drive+=bestTm;
+      members.push(unassigned[best]); unassigned.splice(best,1);
+    }
+    trimToProfit(members,optimise(members.map(d=>d.idx),Dd),netPile,Dd,p);
+    if(members.length) routes.push(finalizeRoute(members,Dd,Dt,p));
+  }
+  return {routes,netPile};
+}
+function constructSavings(drops,Dd,Dt,p){
+  let live=[], netPile=[];
+  drops.forEach(d=>{
+    if(d.weight>p.maxPayload){ d.reason="too heavy for the fleet"; netPile.push(d); return; }
+    if(p.loadMins+p.stopMins+Dt[0][d.idx]>p.dayMins){ d.reason="beyond a working day from the start"; netPile.push(d); }
+    else live.push({members:[d],opt:optimise([d.idx],Dd)});
+  });
+  const rc=r=>{ const cf=costFor(r.opt.miles,r.members.length,wtOf(r.members),p); return cf?cf.cost:Infinity; };
+  let improved=true;
+  while(improved){ improved=false;
+    let bg=1e-6,bi=-1,bj=-1,bm=null,bo=null;
+    for(let i=0;i<live.length;i++) for(let j=i+1;j<live.length;j++){
+      const merged=live[i].members.concat(live[j].members);
+      if(merged.length>14) continue;
+      if(wtOf(merged)>p.maxPayload) continue;
+      const opt=optimise(merged.map(d=>d.idx),Dd);
+      if(routeDriveTime(opt,merged.length,Dt,p)>p.dayMins) continue;
+      const cf=costFor(opt.miles,merged.length,wtOf(merged),p);
+      if(!cf) continue;
+      const gain=rc(live[i])+rc(live[j])-cf.cost;
+      if(gain>bg){ bg=gain; bi=i; bj=j; bm=merged; bo=opt; }
+    }
+    if(bi>=0){ live[bi]={members:bm,opt:bo}; live.splice(bj,1); improved=true; }
+  }
+  const routes=[];
+  live.forEach(r=>{
+    let members=r.members.slice();
+    trimToProfit(members,r.opt,netPile,Dd,p);
+    if(members.length) routes.push(finalizeRoute(members,Dd,Dt,p));
+  });
+  return {routes,netPile};
+}
+function totalSaving(routes){ return routes.reduce((s,r)=>s+r.saving,0); }
+function bestChain(baseIdxs,pool,byIdx,Dd,Dt,p){
+  const baseStops=baseIdxs.map(ix=>byIdx[ix]);
+  const baseCf=baseIdxs.length?costFor(optimise(baseIdxs,Dd).miles,baseIdxs.length,wtOf(baseStops),p):null;
+  const baseCost=baseCf?baseCf.cost:0;
+  let curIdxs=baseIdxs.slice(), curStops=baseStops.slice(), curCost=baseCost, cumNet=0, chain=[], left=pool.slice();
+  let best={surplus:1e-9, stops:[]};
+  while(left.length){
+    let bi=-1,biCost=Infinity,biOpt=null;
+    for(let k=0;k<left.length;k++){
+      if(wtOf(curStops)+left[k].weight>p.maxPayload) continue;
+      const trial=optimise([...curIdxs,left[k].idx],Dd);
+      const cf=costFor(trial.miles,curIdxs.length+1,wtOf(curStops)+left[k].weight,p);
+      if(!cf) continue;
+      if(cf.cost<biCost){ biCost=cf.cost; bi=k; biOpt=trial; }
+    }
+    if(bi<0) break;
+    if(routeDriveTime(biOpt,curIdxs.length+1,Dt,p)>p.dayMins) break;
+    const s=left[bi]; curIdxs.push(s.idx); curStops.push(s); curCost=biCost; chain.push(s); cumNet+=s.net; left.splice(bi,1);
+    const surplus=cumNet-(curCost-baseCost);
+    if(surplus>best.surplus) best={surplus, stops:chain.slice()};
+  }
+  return best.stops.length ? best : null;
+}
+function rescueClusters(routes,netPile,byIdx,Dd,Dt,p){
+  const isPool=d=>d.idx!=null && !d.bad;
+  let changed=true, guard=0;
+  while(changed && guard++<60){
+    changed=false;
+    for(const r of routes){
+      const pool=netPile.filter(isPool); if(!pool.length) break;
+      const best=bestChain(r.stops.map(s=>s.idx),pool,byIdx,Dd,Dt,p);
+      if(best){
+        best.stops.forEach(s=>{ const i=netPile.indexOf(s); if(i>=0) netPile.splice(i,1); delete s.reason; r.stops.push(s); });
+        Object.assign(r, finalizeRoute(r.stops,Dd,Dt,p)); changed=true;
+      }
+    }
+    if(changed) continue;
+    const pool=netPile.filter(isPool);
+    if(pool.length){
+      const best=bestChain([],pool,byIdx,Dd,Dt,p);
+      if(best){
+        best.stops.forEach(s=>{ const i=netPile.indexOf(s); if(i>=0) netPile.splice(i,1); delete s.reason; });
+        routes.push(finalizeRoute(best.stops,Dd,Dt,p)); changed=true;
+      }
+    }
+  }
+}
+function improveSol(sol,byIdx,Dd,Dt,p){
+  let rounds=0, changed=true;
+  while(changed && rounds++<8){
+    changed=false;
+    rescueClusters(sol.routes,sol.netPile,byIdx,Dd,Dt,p);
+    let g=0, moved=true;
+    while(moved && g++<300){
+      moved=false;
+      let bestDelta=1e-6, mv=null;
+      for(let a=0;a<sol.routes.length;a++){
+        const A=sol.routes[a];
+        for(let k=0;k<A.stops.length;k++){
+          const s=A.stops[k];
+          const Aw=A.stops.filter((_,i)=>i!==k);
+          const nA=Aw.length? finalizeRoute(Aw,Dd,Dt,p) : {saving:0,stops:[],_empty:true};
+          const netDelta=nA.saving - A.saving;
+          if(netDelta>bestDelta){ bestDelta=netDelta; mv={type:"net",a,k,nA}; }
+          for(let b=0;b<sol.routes.length;b++){ if(b===a) continue;
+            const B=sol.routes[b];
+            if(wtOf(B.stops)+s.weight>p.maxPayload) continue;
+            const nB=finalizeRoute(B.stops.concat([s]),Dd,Dt,p);
+            if(nB.cost>nB.net+1e-9 || nB.time>p.dayMins+0.5) continue;
+            const delta=(nA.saving+nB.saving)-(A.saving+B.saving);
+            if(delta>bestDelta){ bestDelta=delta; mv={type:"move",a,b,k,nA,nB}; }
+          }
+        }
+      }
+      if(!mv) break;
+      const A=sol.routes[mv.a], s=A.stops[mv.k];
+      if(mv.type==="move") Object.assign(sol.routes[mv.b], mv.nB);
+      else { s.reason="cheaper via the network"; sol.netPile.push(s); }
+      if(mv.nA._empty) A.stops=[]; else Object.assign(A, mv.nA);
+      sol.routes=sol.routes.filter(r=>r.stops.length>0);
+      moved=true; changed=true;
+    }
+  }
+  return sol;
+}
+function expandForVolume(sol,Dd,Dt,p,floor){
+  const isPool=d=>d.idx!=null && !d.bad;
+  let guard=0;
+  while(guard++<500){
+    const budget=totalSaving(sol.routes)-floor;
+    if(budget<=1e-6) break;
+    let best=null;
+    for(const s of sol.netPile.filter(isPool)){
+      let opt=null;
+      for(const r of sol.routes){
+        if(wtOf(r.stops)+s.weight>p.maxPayload) continue;
+        const nr=finalizeRoute(r.stops.concat([s]),Dd,Dt,p);
+        if(nr.time>p.dayMins+0.5) continue;
+        const cost=r.saving-nr.saving;
+        if(cost<=budget+1e-9 && (!opt||cost<opt.cost)) opt={cost,route:r,nr};
+      }
+      if(s.weight<=p.maxPayload){
+        const solo=finalizeRoute([s],Dd,Dt,p);
+        if(solo.time<=p.dayMins+0.5){ const cost=-solo.saving; if(cost<=budget+1e-9 && (!opt||cost<opt.cost)) opt={cost,nr:solo,newRoute:true}; }
+      }
+      if(!opt) continue;
+      const score=s.parcels/Math.max(opt.cost,0.01);
+      if(!best||score>best.score||(Math.abs(score-best.score)<1e-9&&opt.cost<best.cost)) best={s,score,opt};
+    }
+    if(!best) break;
+    const i=sol.netPile.indexOf(best.s); if(i>=0) sol.netPile.splice(i,1); delete best.s.reason;
+    if(best.opt.newRoute) sol.routes.push(best.opt.nr); else Object.assign(best.opt.route,best.opt.nr);
+  }
+}
+function buildFleetRoutes(drops,Dd,Dt,p,objective){
+  const byIdx={}; drops.forEach(d=>byIdx[d.idx]=d);
+  const strategies=[
+    s=>constructGreedy(s,Dd,Dt,p,{seed:"near",grow:"density"}),
+    s=>constructGreedy(s,Dd,Dt,p,{seed:"far",grow:"density"}),
+    s=>constructGreedy(s,Dd,Dt,p,{seed:"near",grow:"surplus"}),
+    s=>constructGreedy(s,Dd,Dt,p,{seed:"parcels",grow:"insertion"}),
+  ];
+  if(drops.length<=32) strategies.push(s=>constructSavings(s,Dd,Dt,p));
+  const cands=strategies.map(run=>{
+    const fresh=drops.map(d=>({...d}));
+    const fIdx={}; fresh.forEach(d=>fIdx[d.idx]=d);
+    const sol=run(fresh); sol._byIdx=fIdx; return {sol, raw:totalSaving(sol.routes)};
+  }).sort((a,b)=>b.raw-a.raw);
+  const K=Math.min(drops.length>35?2:3, cands.length);
+  let best=null, bestScore=-Infinity;
+  for(let i=0;i<K;i++){
+    const sol=improveSol(cands[i].sol,cands[i].sol._byIdx,Dd,Dt,p);
+    const sc=totalSaving(sol.routes);
+    if(sc>bestScore+1e-9){ bestScore=sc; best=sol; }
+  }
+  if(objective==="volume") expandForVolume(best,Dd,Dt,p,0);
+  best.routes.sort((a,b)=>b.parcels-a.parcels); best.routes.forEach((r,i)=>r.n=i+1);
+  return best;
+}
+
+/* --- fleet plan UI state --- */
+let fleetObjective="saving";
+let fleetPlan=null;        // {days:[{day, drops, routes, netPile, Dd, Dt}], start:{lat,lng,label}, p}
+let fleetSelDay=0;
+let pinMode=false;
+let startPin=null;         // {lat,lng,label}
+const fleetLayer=L.layerGroup().addTo(map);
+
+document.getElementById("fpObj").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  fleetObjective=b.dataset.obj;
+  document.querySelectorAll("#fpObj button").forEach(x=>x.setAttribute("aria-pressed", x===b));
+});
+document.getElementById("fpPin").addEventListener("click", ()=>{
+  pinMode=!pinMode;
+  document.getElementById("fpPin").setAttribute("aria-pressed", pinMode);
+  document.getElementById("fpStatus").textContent = pinMode ? "Click the map to drop the start pin." : "";
+});
+map.on("click", e=>{
+  if(!pinMode) return;
+  startPin={lat:e.latlng.lat, lng:e.latlng.lng, label:"pinned point"};
+  pinMode=false;
+  document.getElementById("fpPin").setAttribute("aria-pressed", false);
+  document.getElementById("fpStart").value="";
+  document.getElementById("fpStatus").textContent="Start pinned — drag it to adjust, then Plan the fleet.";
+  drawStartPin();
+});
+function drawStartPin(){
+  fleetLayer.eachLayer(l=>{ if(l._isStartPin) fleetLayer.removeLayer(l); });
+  if(!startPin) return;
+  const mk=L.marker([startPin.lat,startPin.lng],{draggable:true,title:"Start"});
+  mk._isStartPin=true;
+  mk.on("dragend",()=>{ const ll=mk.getLatLng(); startPin={lat:ll.lat,lng:ll.lng,label:"pinned point"}; });
+  mk.bindPopup("<b>Start</b>");
+  mk.addTo(fleetLayer);
+}
+function updateChargeNote(){
+  const cCol=roleCol("charge");
+  const note=document.getElementById("fpChargeNote");
+  if(cCol){ note.textContent=`using the “${cCol}” column as the network price`; document.getElementById("fpNetRate").disabled=true; }
+  else { note.textContent="no charge column in the sheet — flat rate used"; document.getElementById("fpNetRate").disabled=false; }
+}
+function clearFleetPlan(){
+  fleetPlan=null; fleetLayer.clearLayers();
+  document.getElementById("fpOut").innerHTML="";
+  document.getElementById("fpClear").hidden=true;
+  document.getElementById("fpCsv").hidden=true;
+  document.getElementById("fpStatus").textContent="";
+}
+document.getElementById("fpClear").addEventListener("click", clearFleetPlan);
+
+document.getElementById("fpRun").addEventListener("click", runFleetPlan);
+async function runFleetPlan(){
+  const status=document.getElementById("fpStatus");
+  const p=fleetParams();
+  if(!p.vehicles.length){ status.textContent="Every vehicle is unticked in the rates panel — enable at least one."; return; }
+  // resolve the start point
+  let start=startPin;
+  const spc=normPC(document.getElementById("fpStart").value);
+  if(document.getElementById("fpStart").value.trim() && !spc){ status.textContent="That start postcode doesn't look like a full UK postcode."; return; }
+  if(spc){
+    if(!(spc in pcCache)){
+      try{
+        const r=await fetch("https://api.postcodes.io/postcodes/"+encodeURIComponent(spc));
+        const o=await r.json();
+        pcCache[spc]=o.result?[o.result.latitude,o.result.longitude]:null; saveCache();
+      }catch(_){}
+    }
+    if(!pcCache[spc]){ status.textContent="Couldn't find that start postcode."; return; }
+    start={lat:pcCache[spc][0], lng:pcCache[spc][1], label:spc};
+    startPin=start; drawStartPin();
+  }
+  if(!start){ status.textContent="Set a start point — type a postcode or pin one on the map."; return; }
+
+  const vis=visibleRows().filter(r=>r._ll);
+  if(!vis.length){ status.textContent="No located orders are visible — widen the filters."; return; }
+  const iCol=roleCol("items"), wCol=roleCol("weight"), cCol=roleCol("charge");
+  const byDay=new Map();
+  for(const r of vis){ const d=r._dateISO||"no date"; if(!byDay.has(d)) byDay.set(d,[]); byDay.get(d).push(r); }
+  const days=[...byDay.keys()].sort();
+
+  fleetLayer.clearLayers(); drawStartPin();
+  const out=[];
+  for(let di=0; di<days.length; di++){
+    status.innerHTML=`Planning ${fmtDay(days[di])} (${di+1}/${days.length})…`;
+    await new Promise(r=>setTimeout(r,0));
+    const dayRows=byDay.get(days[di]);
+    const byPc=new Map();
+    for(const r of dayRows){
+      if(!byPc.has(r._pc)) byPc.set(r._pc,{postcode:r._pc, parcels:0, weight:0, net:0, orders:0, names:new Set(), c:{lat:r._ll[0], lng:r._ll[1]}});
+      const d=byPc.get(r._pc);
+      d.orders++;
+      d.parcels += iCol ? (parseFloat(String(r[iCol]).replace(/,/g,""))||0) : 1;
+      d.weight  += wCol ? (parseFloat(String(r[wCol]).replace(/,/g,""))||0) : 0;
+      if(cCol) d.net += parseFloat(String(r[cCol]).replace(/[£,\s]/g,""))||0;
+      const con=roleCol("consignee"); if(con && r[con]) d.names.add(String(r[con]).trim());
+    }
+    const drops=[...byPc.values()];
+    drops.forEach((d,i)=>{ d.idx=i+1; if(!cCol) d.net=d.parcels*p.netRate; d.name=[...d.names][0]||d.postcode; delete d.names; });
+    const M=buildMatrix([start, ...drops.map(d=>d.c)]);
+    const sol=buildFleetRoutes(drops,M.dist,M.time,p,fleetObjective);
+    out.push({day:days[di], routes:sol.routes, netPile:sol.netPile, Dd:M.dist, Dt:M.time, drops});
+  }
+  fleetPlan={days:out, start, p};
+  fleetSelDay=0;
+  status.textContent=`Done — ${days.length} day${days.length===1?"":"s"} planned. Mileage estimated; savings are our route cost vs the network price for the same orders.`;
+  document.getElementById("fpClear").hidden=false;
+  document.getElementById("fpCsv").hidden=false;
+  renderFleetPlan();
+}
+
+function planTotals(){
+  const t={cost:0, net:0, parcels:0, routes:0, netParcels:0, netWorth:0};
+  for(const d of fleetPlan.days){
+    for(const r of d.routes){ t.cost+=r.cost; t.net+=r.net; t.parcels+=r.parcels; t.routes++; }
+    for(const s of d.netPile){ t.netParcels+=s.parcels||0; t.netWorth+=s.net||0; }
+  }
+  t.saving=t.net-t.cost;
+  return t;
+}
+function renderFleetPlan(){
+  if(!fleetPlan) return;
+  const t=planTotals();
+  const multi=fleetPlan.days.length>1;
+  let html=`<div class="kpis">
+    <div class="kpi good"><div class="v">${gbp0(t.saving)}</div><div class="l">saved vs the network${t.net?` (${Math.round(t.saving/t.net*100)}%)`:""}</div></div>
+    <div class="kpi"><div class="v">${gbp0(t.cost)}</div><div class="l">our cost · ${t.routes} route${t.routes===1?"":"s"}</div></div>
+    <div class="kpi"><div class="v">${gbp0(t.net)}</div><div class="l">network price for what we take</div></div>
+    <div class="kpi"><div class="v">${t.parcels.toLocaleString()}</div><div class="l">parcels we take on</div></div>
+    <div class="kpi ${t.netParcels?"bad":""}"><div class="v">${t.netParcels.toLocaleString()}</div><div class="l">parcels stay with the network (${gbp0(t.netWorth)})</div></div>
+  </div>`;
+  if(multi){
+    html+=`<div class="tblwrap" style="max-height:230px"><table class="daytbl"><thead><tr>
+      <th>Day</th><th class="num">Orders</th><th class="num">Routes</th><th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving</th><th class="num">Stay net.</th>
+    </tr></thead><tbody>${fleetPlan.days.map((d,i)=>{
+      const c=d.routes.reduce((s,r)=>s+r.cost,0), n=d.routes.reduce((s,r)=>s+r.net,0);
+      const stay=d.netPile.reduce((s,x)=>s+(x.parcels||0),0);
+      return `<tr data-day="${i}" class="${i===fleetSelDay?"sel":""}"><td>${fmtDay(d.day)}</td>
+        <td class="num">${d.drops.reduce((s,x)=>s+x.orders,0)}</td><td class="num">${d.routes.length}</td>
+        <td class="num">${gbp0(c)}</td><td class="num">${gbp0(n)}</td>
+        <td class="num ${n-c>=0?"pos":"neg"}">${gbp0(n-c)}</td><td class="num">${stay}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+  }
+  const D=fleetPlan.days[fleetSelDay];
+  html+=renderDayDetail(D, multi);
+  document.getElementById("fpOut").innerHTML=html;
+  document.querySelectorAll(".daytbl tr[data-day]").forEach(tr=>tr.addEventListener("click", ()=>{
+    fleetSelDay=+tr.dataset.day; renderFleetPlan();
+  }));
+  wireMoves(D);
+  drawFleetDay(D);
+}
+function gmapsUrl(r){
+  const enc=encodeURIComponent;
+  const origin=fleetPlan.start.label!=="pinned point" ? fleetPlan.start.label : `${fleetPlan.start.lat},${fleetPlan.start.lng}`;
+  const pts=[origin, ...r.stops.map(s=>s.postcode)];
+  const way=pts.slice(1,-1).map(enc).join("%7C");
+  return `https://www.google.com/maps/dir/?api=1&origin=${enc(pts[0])}&destination=${enc(pts[pts.length-1])}${way?`&waypoints=${way}`:""}&travelmode=driving`;
+}
+function renderDayDetail(D, multi){
+  const p=fleetPlan.p;
+  let rows="";
+  D.routes.forEach((r,ri)=>{
+    const over=r.time>p.dayMins+0.5;
+    rows+=`<tr class="rt-group"><td><span class="veh">Route ${r.n} — ${esc(r.vehicle)}</span> <a href="${gmapsUrl(r)}" target="_blank" rel="noopener" title="Open in Google Maps">🗺</a></td>
+      <td class="num">${r.parcels}</td><td class="num">${r.drops}</td><td class="num">${Math.round(r.weight).toLocaleString()}</td>
+      <td class="num">${Math.round(r.miles)}</td><td class="num"${over?' style="color:var(--bad)"':""}>${fmtHMm(r.time)}${over?" ⚠":""}</td>
+      <td class="num">${gbp(r.cost)}</td><td class="num">${gbp(r.net)}</td>
+      <td class="num ${r.saving>=0?"pos":"neg"}">${gbp(r.saving)}</td></tr>`;
+    r.stops.forEach((s,si)=>{
+      rows+=`<tr class="rt-sub"><td style="padding-left:22px">${si+1}. ${esc(s.name||s.postcode)} · ${esc(s.postcode)}${s.orders>1?` · ${s.orders} orders`:""}</td>
+        <td class="num">${s.parcels}</td><td class="num"></td><td class="num">${Math.round(s.weight)}</td>
+        <td class="num" colspan="3"></td><td class="num">${gbp(s.net)}</td>
+        <td>${moveSelect(D,"r",ri,si)}</td></tr>`;
+    });
+  });
+  const pileRows=D.netPile.map((s,si)=>`<tr class="rt-sub"><td>${esc(s.name||s.postcode)} · ${esc(s.postcode)}</td>
+    <td class="num">${s.parcels||0}</td><td class="num"></td><td class="num">${Math.round(s.weight||0)}</td>
+    <td colspan="3" style="color:var(--faint)">${esc(s.reason||"cheaper via the network")}</td>
+    <td class="num">${gbp(s.net||0)}</td><td>${s.bad?"":moveSelect(D,"n",0,si)}</td></tr>`).join("");
+  return `${multi?`<div class="netpile-h">${fmtDay(D.day)}</div>`:""}
+    <div class="tblwrap" style="max-height:420px; margin-top:10px"><table><thead><tr>
+      <th>Route / stop</th><th class="num">Parcels</th><th class="num">Drops</th><th class="num">Kg</th>
+      <th class="num">Miles</th><th class="num">Day</th><th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving / move</th>
+    </tr></thead><tbody>${rows||'<tr><td colspan="9" style="color:var(--faint)">No route beats the network with these rates — everything stays with the network.</td></tr>'}</tbody></table></div>
+    ${D.netPile.length?`<div class="netpile-h">Stays with the network — ${D.netPile.length} stop${D.netPile.length===1?"":"s"}</div>
+    <div class="tblwrap" style="max-height:240px"><table><thead><tr>
+      <th>Stop</th><th class="num">Parcels</th><th></th><th class="num">Kg</th><th colspan="3">Why</th><th class="num">Network £</th><th>Move</th>
+    </tr></thead><tbody>${pileRows}</tbody></table></div>`:""}
+    <div class="fp-note">Use the drop-downs to override the plan — move a stop to another route, a new route, or back to the network. Costs, vehicle choice and savings recalculate instantly.</div>`;
+}
+function moveSelect(D, kind, ri, si){
+  let opts=`<option value="">move…</option>`;
+  D.routes.forEach((r,i)=>{ if(!(kind==="r" && i===ri)) opts+=`<option value="r${i}">→ Route ${r.n}</option>`; });
+  opts+=`<option value="new">→ new route</option>`;
+  if(kind==="r") opts+=`<option value="net">→ network</option>`;
+  return `<select data-mv data-kind="${kind}" data-ri="${ri}" data-si="${si}">${opts}</select>`;
+}
+function wireMoves(D){
+  document.querySelectorAll("[data-mv]").forEach(sel=>sel.addEventListener("change", ()=>{
+    const kind=sel.dataset.kind, ri=+sel.dataset.ri, si=+sel.dataset.si, tgt=sel.value;
+    if(!tgt) return;
+    const p=fleetPlan.p;
+    let stop;
+    if(kind==="r"){ stop=D.routes[ri].stops.splice(si,1)[0]; }
+    else { stop=D.netPile.splice(si,1)[0]; delete stop.reason; }
+    if(tgt==="net"){ stop.reason="moved by you"; D.netPile.push(stop); }
+    else if(tgt==="new"){ D.routes.push({...finalizeRoute([stop],D.Dd,D.Dt,p), n:D.routes.length+1}); }
+    else { const b=+tgt.slice(1); Object.assign(D.routes[b], finalizeRoute(D.routes[b].stops.concat([stop]),D.Dd,D.Dt,p)); }
+    if(kind==="r"){
+      if(D.routes[ri].stops.length) Object.assign(D.routes[ri], finalizeRoute(D.routes[ri].stops,D.Dd,D.Dt,p));
+      else D.routes.splice(ri,1);
+    }
+    D.routes.forEach((r,i)=>r.n=i+1);
+    renderFleetPlan();
+  }));
+}
+function drawFleetDay(D){
+  fleetLayer.clearLayers(); drawStartPin();
+  const s=fleetPlan.start;
+  D.routes.forEach((r,i)=>{
+    const col=DATE_COLORS[i%DATE_COLORS.length];
+    const pts=[[s.lat,s.lng], ...r.stops.map(x=>[x.c.lat,x.c.lng])];
+    L.polyline(pts,{color:col,weight:3,opacity:.85}).addTo(fleetLayer);
+    r.stops.forEach((x,si)=>{
+      L.circleMarker([x.c.lat,x.c.lng],{radius:7,weight:2,color:"#fff",fillColor:col,fillOpacity:1})
+        .bindPopup(`<b>Route ${r.n} — stop ${si+1}</b><br>${esc(x.name||"")}<br>${esc(x.postcode)} · ${x.parcels} parcels · ${Math.round(x.weight)}kg`)
+        .addTo(fleetLayer);
+    });
+  });
+  D.netPile.forEach(x=>{
+    if(!x.c) return;
+    L.circleMarker([x.c.lat,x.c.lng],{radius:5,weight:1.5,color:"#888",fillColor:"#bbb",fillOpacity:.7,dashArray:"2"})
+      .bindPopup(`<b>Stays with the network</b><br>${esc(x.name||"")}<br>${esc(x.postcode)} · ${esc(x.reason||"")}`)
+      .addTo(fleetLayer);
+  });
+  try{
+    const all=[[s.lat,s.lng], ...D.routes.flatMap(r=>r.stops.map(x=>[x.c.lat,x.c.lng]))];
+    if(all.length>1) map.fitBounds(L.latLngBounds(all).pad(0.1));
+  }catch(_){}
+}
+document.getElementById("fpCsv").addEventListener("click", ()=>{
+  if(!fleetPlan) return;
+  const lines=[["Day","Route","Vehicle","Stop order","Consignee","Postcode","Parcels","Kg","Route miles","Route time","Our cost","Network price","Saving","Status"]];
+  for(const D of fleetPlan.days){
+    for(const r of D.routes){
+      r.stops.forEach((x,si)=>lines.push([fmtDay(D.day),`Route ${r.n}`,r.vehicle,si+1,x.name||"",x.postcode,x.parcels,Math.round(x.weight),
+        si===0?Math.round(r.miles):"", si===0?fmtHMm(r.time):"", si===0?r.cost.toFixed(2):"", si===0?r.net.toFixed(2):"", si===0?r.saving.toFixed(2):"", "Cal"]));
+    }
+    for(const x of D.netPile) lines.push([fmtDay(D.day),"","","",x.name||"",x.postcode,x.parcels||0,Math.round(x.weight||0),"","","",(x.net||0).toFixed(2),"",x.reason||"network"]);
+  }
+  const csv=lines.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="fleet-plan.csv"; a.click(); URL.revokeObjectURL(a.href);
+});
 
 /* ---------- utils ---------- */
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
