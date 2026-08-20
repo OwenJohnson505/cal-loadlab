@@ -1660,13 +1660,15 @@ async function executeOps(ops){
   const did = [];
   const resultBits = [];
   let scenarioRan = false;
+  let filterTouched = false;
+  let planOpRan = false;
   for(const op of ops){
     try{
       switch(op.op){
         case "tag": case "untag": case "set": case "filter": case "clear_filters": {
           const r = applyOp(op);
           if(r) did.push(r);
-          if((op.op==="filter"||op.op==="clear_filters")) document.getElementById("filterPanel").hidden=false;
+          if((op.op==="filter"||op.op==="clear_filters")){ document.getElementById("filterPanel").hidden=false; filterTouched=true; }
           break;
         }
         case "color_by": {
@@ -1733,6 +1735,7 @@ async function executeOps(ops){
           document.querySelectorAll("#fpObj button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.obj===fleetObjective));
           const pool = op.value ? Math.max(1, parseInt(op.value)||1) : 1;
           const spec = (op.where || pool>1) ? { where:op.where||null, pool, objective:op.objective||null, label:op.label||null } : null;
+          planOpRan = true;
           await runFleetPlan(spec);
           if(fleetPlan){
             const t = totalsOf(fleetPlan.days);
@@ -1822,6 +1825,11 @@ async function executeOps(ops){
   if(scenarioRan){
     renderScenarios();
     document.getElementById("fpStatus").textContent = "Scenarios done — comparison below.";
+  }
+  // filters changed under a standing plan → the plan is stale; refresh it on the new subset
+  if(filterTouched && fleetPlan && !planOpRan){
+    did.push("plan refreshing for the new filters");
+    scheduleRerun();
   }
   renderStateFeed();
   scheduleSave();
