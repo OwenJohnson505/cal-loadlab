@@ -298,6 +298,27 @@ tr.hovering td{background:var(--accent-soft);}
 }
 .footnote{max-width:1420px; margin:14px auto 0; color:var(--faint); font-size:11.5px; line-height:1.55;}
 
+/* ---- app rail ---- */
+.appnav{
+  position:fixed; inset:0 auto 0 0; width:176px; z-index:40;
+  background:var(--surface); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; padding:18px 12px 14px;
+}
+.appnav .brand{font-weight:700; font-size:15px; letter-spacing:-0.01em; padding:0 8px 14px;}
+.appnav .brand small{display:block; font-weight:600; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:2px;}
+.appnav a{
+  display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--muted);
+  font-size:13.5px; font-weight:600; padding:9px 10px; border-radius:8px; margin-bottom:2px;
+}
+.appnav a:hover{color:var(--ink); background:var(--surface2);}
+.appnav a[aria-current="page"]{color:var(--accent-ink); background:var(--accent-soft);}
+body{margin-left:176px;}
+@media (max-width:900px){
+  .appnav{position:static; width:auto; flex-direction:row; align-items:center; gap:4px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--line); margin:calc(-1*clamp(14px,2.5vw,30px)) calc(-1*clamp(14px,2.5vw,30px)) 14px;}
+  .appnav .brand{padding:0 10px 0 0;} .appnav .brand small{display:none;}
+  body{margin-left:0;}
+}
+
 /* ---- staff sign-in gate ---- */
 #authGate{
   position:fixed; inset:0; z-index:60; background:var(--bg);
@@ -377,6 +398,12 @@ tr.hovering td{background:var(--accent-soft);}
 </style>
 </head>
 <body>
+
+<nav class="appnav">
+  <div class="brand"><small>Cal · Load Lab</small>Toolkit</div>
+  <a href="index.html" aria-current="page">📦 Vehicle Selector</a>
+  <a href="routing.html">🗺️ Routing</a>
+</nav>
 
 <div id="authGate">
   <form class="auth-card" id="authForm">

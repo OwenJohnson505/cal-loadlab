@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Load Lab — Routing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
+  --ink:#182420; --muted:#5D6B66; --faint:#8A968F;
+  --line:#DFE5E2; --line2:#EBEFED;
+  --accent:#D9641E; --accent-ink:#B14E12; --accent-soft:#FBEDE3;
+  --good:#23744F; --good-soft:#E4F1EA; --bad:#B3402E; --bad-soft:#F8E9E5;
+  --warn:#8A6D1B; --warn-soft:#F7EFD8;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131917; --surface:#1B2320; --surface2:#20292624;
+    --ink:#E8EDEA; --muted:#93A19B; --faint:#6C7A74;
+    --line:#2A3531; --line2:#232D29;
+    --accent:#F08A48; --accent-ink:#F49E66; --accent-soft:#3A281C;
+    --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
+    --warn:#D8B457; --warn-soft:#3A311A;
+  }
+  .leaflet-tile{filter:brightness(.85) contrast(1.05) saturate(.85);}
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Space Grotesk",system-ui,sans-serif;
+  font-size:15px; line-height:1.45;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+/* ---- app rail ---- */
+.appnav{
+  position:fixed; inset:0 auto 0 0; width:176px; z-index:40;
+  background:var(--surface); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; padding:18px 12px 14px;
+}
+.appnav .brand{font-weight:700; font-size:15px; letter-spacing:-0.01em; padding:0 8px 14px;}
+.appnav .brand small{display:block; font-weight:600; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:2px;}
+.appnav a{
+  display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--muted);
+  font-size:13.5px; font-weight:600; padding:9px 10px; border-radius:8px; margin-bottom:2px;
+}
+.appnav a:hover{color:var(--ink); background:var(--surface2);}
+.appnav a[aria-current="page"]{color:var(--accent-ink); background:var(--accent-soft);}
+.appnav .foot{margin-top:auto; font-size:11px; color:var(--faint); padding:0 8px; overflow-wrap:anywhere;}
+.appnav .foot button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:11px; text-decoration:underline; padding:0;}
+.appnav .foot button:hover{color:var(--ink);}
+.main{padding:clamp(14px,2vw,24px); margin-left:176px;}
+@media (max-width:900px){
+  .appnav{position:static; width:auto; flex-direction:row; align-items:center; gap:4px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--line);}
+  .appnav .brand{padding:0 10px 0 0;} .appnav .brand small{display:none;}
+  .appnav .foot{margin:0 0 0 auto;}
+  .main{margin-left:0;}
+}
+
+header{margin:0 0 16px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between;}
+h1{font-size:clamp(20px,2.6vw,27px); font-weight:700; letter-spacing:-0.02em; line-height:1.1;}
+.sub{color:var(--muted); font-size:13px; margin-top:5px; max-width:78ch;}
+
+.layout{display:grid; grid-template-columns:330px 1fr; gap:16px; align-items:start;}
+@media (max-width:1100px){ .layout{grid-template-columns:1fr;} }
+.col-left{display:flex; flex-direction:column; gap:16px; min-width:0;}
+.col-right{display:flex; flex-direction:column; gap:16px; min-width:0;}
+
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; min-width:0;}
+.panel h2{font-size:14.5px; font-weight:700; letter-spacing:-0.01em; margin-bottom:3px;}
+.panel .hint{color:var(--muted); font-size:12.5px; margin-bottom:10px;}
+
+button.primary{
+  border:0; background:var(--accent); color:#fff; cursor:pointer;
+  font:inherit; font-weight:600; font-size:13.5px; border-radius:8px; padding:9px 16px;
+  transition:filter .15s ease, transform .1s ease;
+}
+button.primary:hover{filter:brightness(1.07);}
+button.primary:active{transform:translateY(1px);}
+button.primary:focus-visible{outline:2px solid var(--ink); outline-offset:2px;}
+button.primary:disabled{opacity:.5; cursor:default;}
+button.ghost{
+  border:1px solid var(--line); background:var(--surface2); color:var(--muted); cursor:pointer;
+  font:inherit; font-size:12.5px; font-weight:600; border-radius:8px; padding:7px 11px;
+  transition:color .15s ease, border-color .15s ease;
+}
+button.ghost:hover{color:var(--ink); border-color:var(--faint);}
+button.ghost:focus-visible{outline:2px solid var(--accent);}
+input.txt, select.txt{
+  font:inherit; font-size:13px; color:var(--ink);
+  background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+}
+input.txt:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+
+/* ---- import ---- */
+.drop{
+  border:1.5px dashed var(--line); border-radius:var(--radius); padding:18px 14px;
+  text-align:center; color:var(--muted); font-size:13px; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.drop:hover, .drop.over{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink);}
+.drop b{color:var(--ink); font-weight:600;}
+.src-list{margin-top:10px; display:flex; flex-direction:column; gap:5px;}
+.src-row{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); padding:6px 8px; background:var(--surface2); border-radius:7px;}
+.src-row .n{font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.src-row .c{margin-left:auto; color:var(--faint); flex-shrink:0;}
+.src-row button{border:0; background:none; color:var(--faint); cursor:pointer; font-size:14px; padding:0 2px;}
+.src-row button:hover{color:var(--bad);}
+.ai-status{font-size:12px; margin-top:9px; min-height:16px;}
+.ai-status.ok{color:var(--good);}
+.ai-status.warn{color:var(--warn);}
+
+/* ---- filters ---- */
+.fgroup{padding:9px 0 4px; border-top:1px solid var(--line2);}
+.fgroup:first-of-type{border-top:0; padding-top:2px;}
+.fgroup .flabel{font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:7px; display:flex; justify-content:space-between; align-items:baseline;}
+.fgroup .flabel button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:10.5px; text-decoration:underline; text-transform:none; letter-spacing:0;}
+.fgroup .flabel button:hover{color:var(--ink);}
+.chips{display:flex; flex-wrap:wrap; gap:5px;}
+.chips button{
+  border:1px solid var(--line); background:var(--surface2); color:var(--muted); cursor:pointer;
+  font:inherit; font-size:12px; font-weight:600; border-radius:99px; padding:4px 10px;
+}
+.chips button .ct{color:var(--faint); font-weight:500;}
+.chips button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+.chips button[aria-pressed="true"] .ct{color:var(--bg); opacity:.7;}
+.chips button .dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:1px;}
+.numrange{display:flex; gap:6px; align-items:center; font-size:12px; color:var(--faint);}
+.numrange input{width:82px; font-family:"IBM Plex Mono",monospace; font-size:12.5px;}
+.fsearch input{width:100%;}
+.chatfilter{display:flex; align-items:center; gap:7px; background:var(--accent-soft); color:var(--accent-ink); font-size:12px; font-weight:600; border-radius:7px; padding:5px 9px; margin-bottom:5px;}
+.chatfilter button{border:0; background:none; color:var(--accent-ink); cursor:pointer; font-size:13px; margin-left:auto;}
+.empty-note{color:var(--faint); font-size:12.5px; padding:2px 0 6px;}
+
+/* ---- map ---- */
+.mapwrap{position:relative;}
+#map{height:min(58vh,560px); min-height:340px; border-radius:11px; background:var(--surface2); z-index:1;}
+.map-legend{
+  display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; align-items:center;
+}
+.map-legend .lg-label{font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-right:4px;}
+.colorby{margin-left:auto; display:flex; gap:6px; align-items:center; font-size:12px; color:var(--faint);}
+.statbar{display:flex; flex-wrap:wrap; gap:14px 22px; padding:11px 14px; background:var(--surface2); border-radius:10px; margin-bottom:12px; font-size:12.5px; color:var(--muted);}
+.statbar b{color:var(--ink); font-family:"IBM Plex Mono",monospace; font-size:14px; font-weight:600;}
+.statbar .bad b{color:var(--bad);}
+.leaflet-popup-content{font-family:"Space Grotesk",system-ui,sans-serif; font-size:12.5px; line-height:1.5; margin:10px 12px;}
+.leaflet-popup-content b{font-size:13px;}
+.leaflet-popup-content .pk{color:var(--faint);}
+.leaflet-container{font:inherit;}
+
+/* ---- route ---- */
+.route-row{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+.route-row label{font-size:12.5px; color:var(--muted); display:flex; gap:6px; align-items:center;}
+.route-res{margin-top:10px; font-size:13px; color:var(--muted); line-height:1.6;}
+.route-res b{font-family:"IBM Plex Mono",monospace; color:var(--ink); font-size:15px;}
+.route-res details{margin-top:6px;}
+.route-res summary{cursor:pointer; font-size:12.5px; color:var(--faint);}
+.route-res ol{margin:7px 0 0 20px; font-size:12.5px;}
+.route-res li{margin-bottom:2px;}
+.route-err{color:var(--bad); font-size:12.5px; margin-top:8px;}
+
+/* ---- table ---- */
+.tblwrap{overflow:auto; max-height:440px; border:1px solid var(--line2); border-radius:9px;}
+table{border-collapse:collapse; width:100%; font-size:12.5px;}
+thead th{
+  position:sticky; top:0; background:var(--surface2); color:var(--faint); text-align:left;
+  font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; cursor:pointer; user-select:none;
+}
+thead th:hover{color:var(--ink);}
+tbody td{padding:6px 10px; border-bottom:1px solid var(--line2); white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;}
+tbody tr:hover{background:var(--accent-soft); cursor:pointer;}
+td.num{font-family:"IBM Plex Mono",monospace; text-align:right;}
+.tagpill{display:inline-block; background:var(--good-soft); color:var(--good); font-size:11px; font-weight:600; border-radius:99px; padding:1px 8px; margin-right:3px;}
+.tbl-note{color:var(--faint); font-size:12px; margin-top:8px;}
+
+/* ---- chat ---- */
+.chat-log{display:flex; flex-direction:column; gap:8px; max-height:300px; overflow:auto; margin-bottom:10px;}
+.msg{font-size:13px; line-height:1.5; border-radius:10px; padding:8px 11px; max-width:94%;}
+.msg.user{align-self:flex-end; background:var(--ink); color:var(--bg);}
+.msg.bot{align-self:flex-start; background:var(--surface2); color:var(--ink); border:1px solid var(--line2);}
+.msg.bot .did{display:block; margin-top:5px; font-size:11.5px; color:var(--good); font-weight:600;}
+.msg.bot.err{color:var(--bad);}
+.chat-row{display:flex; gap:7px;}
+.chat-row input{flex:1;}
+.chat-hint{color:var(--faint); font-size:11.5px; margin-top:7px; line-height:1.5;}
+
+/* ---- auth gate (shared with Load Lab) ---- */
+#authGate{position:fixed; inset:0; z-index:60; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
+.auth-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(360px,100%);}
+.auth-card h1{font-size:24px; margin-bottom:2px;}
+.auth-card .sub{margin-bottom:18px;}
+.auth-card label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+.auth-card input{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+.auth-card input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
+.auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
+.linkish{display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;}
+.linkish:hover{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<nav class="appnav">
+  <div class="brand"><small>Cal · Load Lab</small>Toolkit</div>
+  <a href="index.html">📦 Vehicle Selector</a>
+  <a href="routing.html" aria-current="page">🗺️ Routing</a>
+  <div class="foot"><span id="whoami"></span> <button id="signOut" hidden>sign out</button></div>
+</nav>
+
+<div id="authGate">
+  <form class="auth-card" id="authForm">
+    <h1>Load Lab</h1>
+    <div class="sub" id="authSub">Cal staff sign-in.</div>
+    <div id="stepEmail">
+      <label for="authEmail">Work email</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button class="primary" type="submit" id="authSubmit">Sign in</button>
+      <button type="button" class="linkish" id="modeSwitch">New here? Request access</button>
+      <button type="button" class="linkish" id="haveCode">Sign in with a code from an admin</button>
+    </div>
+    <div id="stepCode" hidden>
+      <label for="authCode">Enter the code</label>
+      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
+      <button class="primary" type="submit">Sign in</button>
+      <button type="button" class="linkish" id="authBack">Back</button>
+    </div>
+    <div class="auth-err" id="authErr"></div>
+  </form>
+  <div class="auth-card" id="pendingCard" hidden>
+    <h1>Request sent</h1>
+    <div class="sub">Your request is in — an admin needs to approve it before you can use Load Lab.
+      Once approved, just sign in again with your email and password.</div>
+    <button class="primary" id="pendingSignOut" type="button">OK</button>
+  </div>
+</div>
+
+<div class="main">
+<header>
+  <div>
+    <h1>Routing</h1>
+    <div class="sub">Drop in order spreadsheets — every row becomes a pin, coloured by collection day. Filter, group, and route them; tell the assistant to reshape the data however you need.</div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="col-left">
+
+    <section class="panel">
+      <h2>Import orders</h2>
+      <div class="hint">CSV or Excel — several files at once, every sheet read.</div>
+      <div class="drop" id="drop" tabindex="0" role="button">
+        <b>Drop spreadsheets here</b><br>or click to choose files
+        <input type="file" id="fileIn" accept=".csv,.xlsx,.xls" multiple hidden>
+      </div>
+      <div class="src-list" id="srcList"></div>
+      <div class="ai-status" id="aiStatus"></div>
+    </section>
+
+    <section class="panel" id="filterPanel" hidden>
+      <h2>Filters</h2>
+      <div class="hint">Built from this sheet's own columns. Nothing selected in a group means "all".</div>
+      <div id="chatFilters"></div>
+      <div id="filterGroups"></div>
+    </section>
+
+    <section class="panel" id="chatPanel" hidden>
+      <h2>Data assistant</h2>
+      <div class="hint">Tell it how to reshape the data — it applies the change to every matching row.</div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-row">
+        <input class="txt" id="chatIn" placeholder='e.g. mark refs ending 406 as "table"'>
+        <button class="primary" id="chatSend" type="button">Send</button>
+      </div>
+      <div class="chat-hint">Try: “tag anything over 40kg as heavy” · “only show Lengths from the last two days” · “set depot to Manchester on every row”.</div>
+    </section>
+
+  </div>
+  <div class="col-right">
+
+    <section class="panel">
+      <div class="statbar" id="statbar" hidden></div>
+      <div class="mapwrap"><div id="map"></div></div>
+      <div class="map-legend" id="legend"></div>
+    </section>
+
+    <section class="panel" id="routePanel" hidden>
+      <h2>Plan a route</h2>
+      <div class="hint">Routes the stops currently showing on the map (one stop per postcode), shortest order first, via real roads.</div>
+      <div class="route-row">
+        <input class="txt" id="routeStart" placeholder="Start postcode (optional)" style="width:190px;">
+        <label><input type="checkbox" id="routeRound" checked> return to start</label>
+        <button class="primary" id="routeBtn" type="button">Route visible stops</button>
+        <button class="ghost" id="routeClear" type="button" hidden>Clear route</button>
+      </div>
+      <div class="route-res" id="routeRes"></div>
+      <div class="route-err" id="routeErr"></div>
+    </section>
+
+    <section class="panel" id="tablePanel" hidden>
+      <h2>Orders</h2>
+      <div class="hint">What the filters leave in. Click a column to sort, a row to find it on the map.</div>
+      <div class="tblwrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+      <div class="tbl-note" id="tblNote"></div>
+    </section>
+
+  </div>
+</div>
+</div>
+
+<script>
+"use strict";
+/* ================= staff auth (same account as Vehicle Selector) ================= */
+const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
+const SB_KEY = "sb_publishable_opNVNmCxE0yM2vYUkHmOhw_dzOxDQw5";
+const AI_URL = SB_URL + "/functions/v1/routing-ai";
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+let sbSession = null;
+
+function showGate(mode){
+  document.getElementById("authGate").style.display = mode ? "flex" : "none";
+  document.getElementById("authForm").hidden = mode !== "login";
+  document.getElementById("pendingCard").hidden = mode !== "pending";
+  if(mode === "login") setAuthMode("signin");
+}
+async function setSession(s){
+  sbSession = s;
+  document.getElementById("whoami").textContent = s ? s.user.email : "";
+  document.getElementById("signOut").hidden = !s;
+  if(!s){ showGate("login"); return; }
+  const { data: prof } = await sb.from("loadlab_profiles")
+    .select("approved").eq("user_id", s.user.id).maybeSingle();
+  if(!prof){
+    await sb.from("loadlab_profiles").insert({ user_id: s.user.id, email: s.user.email });
+    showGate("pending"); return;
+  }
+  if(!prof.approved){ showGate("pending"); return; }
+  showGate(null);
+  setTimeout(()=>{ if(map) map.invalidateSize(); }, 60);
+}
+sb.auth.getSession().then(({data:{session}})=>setSession(session));
+sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+
+let pendingEmail = null;
+let authMode = "signin";
+function setAuthMode(mode){
+  authMode = mode;
+  const req = authMode === "request";
+  document.getElementById("authSubmit").textContent = req ? "Request access" : "Sign in";
+  document.getElementById("modeSwitch").textContent = req ? "Already have access? Sign in" : "New here? Request access";
+  document.getElementById("authSub").textContent = req
+    ? "Choose a password — an admin approves your access after."
+    : "Cal staff sign-in.";
+  document.getElementById("authPass").autocomplete = req ? "new-password" : "current-password";
+  document.getElementById("authErr").textContent = "";
+}
+document.getElementById("modeSwitch").addEventListener("click", ()=> setAuthMode(authMode === "signin" ? "request" : "signin"));
+document.getElementById("authForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = document.getElementById("authErr");
+  err.textContent = "";
+  const onCodeStep = !document.getElementById("stepCode").hidden;
+  if(!onCodeStep){
+    const email = document.getElementById("authEmail").value.trim().toLowerCase();
+    const password = document.getElementById("authPass").value;
+    if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
+    if(password.length < 6){ err.textContent = "Password needs at least 6 characters."; return; }
+    if(authMode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) err.textContent = "Wrong email or password. New here? Use Request access. Forgotten it? Ask an admin for a sign-in code.";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error){
+        err.textContent = /registered|exists/i.test(error.message)
+          ? "That email already has an account — sign in instead."
+          : "Couldn't create the account — try again.";
+      } else if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0){
+        err.textContent = "That email already has an account — sign in instead.";
+      }
+    }
+  } else {
+    const token = document.getElementById("authCode").value.trim();
+    if(!token){ err.textContent = "Enter the code."; return; }
+    let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
+    if(res.error) err.textContent = "That code didn't work — check it, or ask for a new one.";
+  }
+});
+document.getElementById("haveCode").addEventListener("click", ()=>{
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  const err = document.getElementById("authErr");
+  if(!/@cal\.delivery$/.test(email)){ err.textContent = "Type your @cal.delivery email first, then click again."; return; }
+  err.textContent = "";
+  pendingEmail = email;
+  document.getElementById("stepEmail").hidden = true;
+  document.getElementById("stepCode").hidden = false;
+  document.getElementById("authCode").focus();
+});
+document.getElementById("authBack").addEventListener("click", ()=>{
+  document.getElementById("stepEmail").hidden = false;
+  document.getElementById("stepCode").hidden = true;
+  document.getElementById("authErr").textContent = "";
+});
+document.getElementById("pendingSignOut").addEventListener("click", ()=>sb.auth.signOut());
+document.getElementById("signOut").addEventListener("click", ()=>sb.auth.signOut());
+
+/* ================= data model ================= */
+let rows = [];            // [{_i,_src,_pc,_ll,_dateISO,_tags:[], <original cols>}]
+let headers = [];         // union of original headers in first-seen order
+let mapping = {};         // header -> {role, kind}
+let sources = [];         // [{name, count}]
+let filters = { chips:{}, num:{}, search:{}, tags:new Set(), chat:[] };
+let extraCols = [];       // columns created by the assistant
+let chatHistory = [];
+const DATE_COLORS = ["#D9641E","#2A6FBB","#23744F","#8A5FBF","#C4342F","#0F8B8D","#B8860B","#D4589E","#5B6B2F","#6B4F3B","#3E7CB1","#7A4E2D"];
+let colorBy = "__date";   // "__date" | "__tags" | header name
+
+const roleCol = r => Object.keys(mapping).find(h => mapping[h].role === r) || null;
+const kindOf  = h => (mapping[h] && mapping[h].kind) || "text";
+
+/* ---------- file import ---------- */
+const drop = document.getElementById("drop");
+const fileIn = document.getElementById("fileIn");
+drop.addEventListener("click", ()=>fileIn.click());
+drop.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" ") fileIn.click(); });
+drop.addEventListener("dragover", e=>{ e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", ()=>drop.classList.remove("over"));
+drop.addEventListener("drop", e=>{ e.preventDefault(); drop.classList.remove("over"); handleFiles(e.dataTransfer.files); });
+fileIn.addEventListener("change", ()=>{ handleFiles(fileIn.files); fileIn.value=""; });
+
+async function handleFiles(fileList){
+  for(const f of Array.from(fileList||[])){
+    try{
+      if(/\.(xlsx|xls)$/i.test(f.name)){
+        const wb = XLSX.read(await f.arrayBuffer(), { cellDates:false });
+        for(const sn of wb.SheetNames){
+          const grid = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header:1, raw:false, defval:"" });
+          ingestGrid(grid, wb.SheetNames.length > 1 ? `${f.name} · ${sn}` : f.name);
+        }
+      } else {
+        ingestGrid(parseCSV(await f.text()), f.name);
+      }
+    }catch(err){
+      console.error(err);
+      setAiStatus(`Couldn't read ${f.name} — is it a normal CSV/Excel file?`, "warn");
+    }
+  }
+  afterImport();
+}
+function parseCSV(text){
+  const out = []; let row = [], cur = "", inQ = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQ){
+      if(c === '"'){ if(text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else if(c === '"') inQ = true;
+    else if(c === ","){ row.push(cur); cur = ""; }
+    else if(c === "\n" || c === "\r"){
+      if(c === "\r" && text[i+1] === "\n") i++;
+      row.push(cur); cur = "";
+      if(row.some(v=>v!=="")) out.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if(row.some(v=>v!=="")) out.push(row);
+  return out;
+}
+function ingestGrid(grid, srcName){
+  if(!grid.length) return;
+  const hdr = grid[0].map(h => String(h).trim()).filter(Boolean);
+  if(!hdr.length) return;
+  for(const h of hdr) if(!headers.includes(h)) headers.push(h);
+  let n = 0;
+  for(let r=1; r<grid.length; r++){
+    const line = grid[r];
+    if(!line || !line.some(v => String(v).trim() !== "")) continue;
+    const o = { _i: rows.length, _src: srcName, _tags: [] };
+    hdr.forEach((h,c)=>{ o[h] = String(line[c] ?? "").trim(); });
+    rows.push(o); n++;
+  }
+  sources.push({ name: srcName, count: n });
+}
+
+async function afterImport(){
+  if(!rows.length) return;
+  renderSources();
+  heuristicMapping();
+  deriveRowMeta();
+  buildFilters();
+  document.getElementById("filterPanel").hidden = false;
+  document.getElementById("chatPanel").hidden = false;
+  document.getElementById("routePanel").hidden = false;
+  document.getElementById("tablePanel").hidden = false;
+  refresh();
+  geocodeAll();          // async — refreshes map as batches land
+  aiCheckColumns();      // async — refines mapping
+}
+function renderSources(){
+  document.getElementById("srcList").innerHTML = sources.map((s,i)=>
+    `<div class="src-row"><span class="n">${esc(s.name)}</span><span class="c">${s.count} rows</span>
+     <button title="Remove" data-i="${i}">✕</button></div>`).join("");
+  document.querySelectorAll(".src-row button").forEach(b=>b.addEventListener("click", ()=>{
+    const name = sources[+b.dataset.i].name;
+    sources.splice(+b.dataset.i,1);
+    rows = rows.filter(r=>r._src!==name);
+    rows.forEach((r,i)=>r._i=i);
+    if(!rows.length){ resetAll(); return; }
+    deriveRowMeta(); buildFilters(); refresh(); renderSources();
+  }));
+}
+function resetAll(){
+  rows=[]; headers=[]; mapping={}; sources=[]; extraCols=[];
+  filters={chips:{},num:{},search:{},tags:new Set(),chat:[]};
+  document.getElementById("srcList").innerHTML="";
+  ["filterPanel","chatPanel","routePanel","tablePanel"].forEach(id=>document.getElementById(id).hidden=true);
+  document.getElementById("statbar").hidden=true;
+  markerLayer.clearLayers(); clearRoute();
+  document.getElementById("legend").innerHTML="";
+}
+
+/* ---------- column mapping ---------- */
+function heuristicMapping(){
+  mapping = {};
+  const seen = new Set();
+  const give = (h, role, kind) => { if(role!=="other" && seen.has(role)) role="other"; mapping[h]={role,kind}; if(role!=="other") seen.add(role); };
+  for(const h of headers){
+    const l = h.toLowerCase();
+    const vals = sampleVals(h, 60);
+    const pcish = vals.length && vals.filter(v=>/^[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z]{2}$/.test(v.trim())).length > vals.length*0.6;
+    const datish = vals.length && vals.filter(v=>parseUKDate(v)).length > vals.length*0.6;
+    const numish = vals.length && vals.filter(v=>v!=="" && !isNaN(parseFloat(v.replace(/,/g,"")))).length > vals.length*0.85;
+    const uniq = new Set(vals.map(v=>v.toLowerCase())).size;
+    if(/post\s*code|postcode|pcode/.test(l) || pcish) give(h,"postcode","postcode");
+    else if(/date|collect|dispatch/.test(l) && datish) give(h,"date","date");
+    else if(datish) give(h,"date","date");
+    else if(/weight|kg\b/.test(l) && numish) give(h,"weight","number");
+    else if(/item|qty|quantity|pieces|pcs|parcels?\b/.test(l) && numish) give(h,"items","number");
+    else if(/\bref|reference|consignment|order\s*no|order\s*id|job\s*no/.test(l)) give(h,"reference","text");
+    else if(/consignee|customer|recipient|deliver\s*to|name/.test(l)) give(h,"consignee","text");
+    else if(/^type$|freight\s*type|product\s*type/.test(l)) give(h,"type","category");
+    else if(/town|city/.test(l)) give(h,"town","text");
+    else if(/depot|branch|hub/.test(l)) give(h,"depot","category");
+    else if(/service|level/.test(l)) give(h,"service","category");
+    else if(/sku/.test(l)) give(h,"sku","text");
+    else if(/dim|length|width|height/.test(l)) give(h,"dimensions", numish?"number":"text");
+    else if(numish) give(h,"other","number");
+    else if(uniq>0 && uniq<=Math.max(8, vals.length*0.3) ) give(h,"other","category");
+    else give(h,"other","text");
+  }
+}
+function sampleVals(h, n){
+  const out = [];
+  for(const r of rows){ const v = String(r[h]??"").trim(); if(v){ out.push(v); if(out.length>=n) break; } }
+  return out;
+}
+async function aiCheckColumns(){
+  if(!sbSession) return;
+  setAiStatus("AI is checking the columns…");
+  try{
+    const samples = rows.slice(0,8).map(r=>headers.map(h=>r[h]??""));
+    const res = await fetch(AI_URL, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+sbSession.access_token, "apikey": SB_KEY },
+      body: JSON.stringify({ mode:"map_columns", headers, samples }),
+    });
+    if(!res.ok) throw new Error("ai "+res.status);
+    const out = await res.json();
+    let changed = false;
+    const seen = new Set();
+    for(const c of out.columns||[]){
+      if(!headers.includes(c.name)) continue;
+      let role = c.role;
+      if(role!=="other" && seen.has(role)) role = "other";
+      if(role!=="other") seen.add(role);
+      const prev = mapping[c.name];
+      if(!prev || prev.role!==role || prev.kind!==c.kind){ mapping[c.name] = {role, kind:c.kind}; changed = true; }
+    }
+    if(changed){ deriveRowMeta(); buildFilters(); refresh(); geocodeAll(); }
+    setAiStatus("AI checked the columns ✓" + (out.note ? " — " + out.note : ""), "ok");
+  }catch(e){
+    console.error(e);
+    setAiStatus("AI column check unavailable — using pattern detection.", "warn");
+  }
+}
+function setAiStatus(t, cls){
+  const el = document.getElementById("aiStatus");
+  el.textContent = t||""; el.className = "ai-status" + (cls ? " "+cls : "");
+}
+
+/* ---------- row metadata: postcode + date ---------- */
+function normPC(v){
+  const s = String(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  if(!/^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(s)) return null;
+  return s.slice(0,-3) + " " + s.slice(-3);
+}
+function parseUKDate(v){
+  const s = String(v||"").trim();
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m){
+    let [_,d,mo,y] = m; y = +y < 100 ? 2000 + +y : +y;
+    const dt = new Date(Date.UTC(y, +mo-1, +d));
+    if(dt.getUTCMonth() === +mo-1) return dt.toISOString().slice(0,10);
+    return null;
+  }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[0];
+  return null;
+}
+function deriveRowMeta(){
+  const pcCol = roleCol("postcode"), dCol = roleCol("date");
+  for(const r of rows){
+    r._pc = pcCol ? normPC(r[pcCol]) : null;
+    r._dateISO = dCol ? parseUKDate(r[dCol]) : null;
+  }
+}
+
+/* ---------- geocoding (postcodes.io, cached) ---------- */
+const PC_CACHE_KEY = "ll-pc-cache-v1";
+let pcCache = {};
+try{ pcCache = JSON.parse(localStorage.getItem(PC_CACHE_KEY)) || {}; }catch(_){}
+function saveCache(){ try{ localStorage.setItem(PC_CACHE_KEY, JSON.stringify(pcCache)); }catch(_){} }
+
+async function geocodeAll(){
+  const need = [...new Set(rows.map(r=>r._pc).filter(pc => pc && !(pc in pcCache)))];
+  for(let i=0; i<need.length; i+=100){
+    const batch = need.slice(i, i+100);
+    try{
+      const res = await fetch("https://api.postcodes.io/postcodes", {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ postcodes: batch }),
+      });
+      const out = await res.json();
+      for(const item of out.result||[]){
+        const q = normPC(item.query);
+        pcCache[q] = item.result ? [item.result.latitude, item.result.longitude] : null;
+      }
+      saveCache();
+      applyLatLng(); refresh();
+    }catch(e){ console.error("geocode", e); break; }
+  }
+  // retry misses as terminated postcodes (old sheets often carry retired codes)
+  const dead = [...new Set(rows.map(r=>r._pc).filter(pc => pc && pcCache[pc] === null))].slice(0,40);
+  for(const pc of dead){
+    try{
+      const res = await fetch("https://api.postcodes.io/terminated_postcodes/" + encodeURIComponent(pc));
+      if(res.ok){
+        const out = await res.json();
+        if(out.result){ pcCache[pc] = [out.result.latitude, out.result.longitude]; }
+      }
+    }catch(_){}
+  }
+  saveCache(); applyLatLng(); refresh();
+}
+function applyLatLng(){
+  for(const r of rows) r._ll = r._pc && pcCache[r._pc] ? pcCache[r._pc] : null;
+}
+
+/* ---------- filters ---------- */
+function buildFilters(){
+  const box = document.getElementById("filterGroups");
+  box.innerHTML = "";
+  const dCol = roleCol("date");
+  const groups = [];
+  if(dCol) groups.push({h:dCol, kind:"date"});
+  for(const h of [...headers, ...extraCols]){
+    if(h === dCol) continue;
+    const k = kindOf(h);
+    if(k === "category") groups.push({h, kind:"category"});
+  }
+  for(const h of [...headers, ...extraCols]){
+    if(h === dCol) continue;
+    if(kindOf(h) === "number") groups.push({h, kind:"number"});
+  }
+  for(const h of headers){
+    const role = mapping[h] && mapping[h].role;
+    if(["reference","consignee","postcode","town","sku"].includes(role)) groups.push({h, kind:"search"});
+  }
+  if(sources.length > 1) groups.push({h:"_src", kind:"category", label:"File / sheet"});
+  groups.push({h:"_tags", kind:"tags", label:"Tags"});
+
+  for(const g of groups){
+    const wrap = document.createElement("div");
+    wrap.className = "fgroup";
+    const label = g.label || g.h;
+    if(g.kind === "date"){
+      const days = countBy(r=>r._dateISO || "no date");
+      wrap.innerHTML = `<div class="flabel"><span>${esc(label)} — days</span><button data-clear="${esc(g.h)}">clear</button></div>
+        <div class="chips">` + [...days.entries()].sort().map(([d,n])=>{
+          const on = filters.chips[g.h]?.has(d);
+          return `<button data-col="${esc(g.h)}" data-v="${esc(d)}" aria-pressed="${!!on}">
+            <span class="dot" style="background:${dateColor(d)}"></span>${fmtDay(d)} <span class="ct">${n}</span></button>`;
+        }).join("") + `</div>`;
+    } else if(g.kind === "category" || g.kind === "tags"){
+      const vals = g.kind === "tags"
+        ? countBy(r=>r._tags, true)
+        : countBy(r=> g.h === "_src" ? r._src : (String(r[g.h]??"").trim() || "—"));
+      if(g.kind === "tags" && !vals.size){ continue; }
+      if(vals.size > 25 || vals.size < 2){ continue; }
+      wrap.innerHTML = `<div class="flabel"><span>${esc(label)}</span><button data-clear="${esc(g.h)}">clear</button></div>
+        <div class="chips">` + [...vals.entries()].sort((a,b)=>b[1]-a[1]).map(([v,n])=>{
+          const on = g.kind==="tags" ? filters.tags.has(v) : filters.chips[g.h]?.has(v);
+          return `<button data-col="${esc(g.h)}" data-v="${esc(v)}" data-tag="${g.kind==='tags'}" aria-pressed="${!!on}">${esc(v)} <span class="ct">${n}</span></button>`;
+        }).join("") + `</div>`;
+    } else if(g.kind === "number"){
+      const f = filters.num[g.h] || {};
+      wrap.innerHTML = `<div class="flabel"><span>${esc(label)}</span><button data-clear="${esc(g.h)}">clear</button></div>
+        <div class="numrange">
+          <input class="txt" type="number" placeholder="min" data-num="${esc(g.h)}" data-side="min" value="${f.min ?? ""}">
+          <span>to</span>
+          <input class="txt" type="number" placeholder="max" data-num="${esc(g.h)}" data-side="max" value="${f.max ?? ""}">
+        </div>`;
+    } else if(g.kind === "search"){
+      const v = filters.search[g.h] || "";
+      wrap.innerHTML = `<div class="flabel"><span>${esc(label)}</span><button data-clear="${esc(g.h)}">clear</button></div>
+        <div class="fsearch"><input class="txt" placeholder="contains…" data-search="${esc(g.h)}" value="${esc(v)}"></div>`;
+    }
+    box.appendChild(wrap);
+  }
+
+  box.querySelectorAll("[data-col]").forEach(b=>b.addEventListener("click", ()=>{
+    const col = b.dataset.col, v = b.dataset.v;
+    if(b.dataset.tag === "true"){
+      filters.tags.has(v) ? filters.tags.delete(v) : filters.tags.add(v);
+    } else {
+      filters.chips[col] = filters.chips[col] || new Set();
+      filters.chips[col].has(v) ? filters.chips[col].delete(v) : filters.chips[col].add(v);
+    }
+    b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+    refresh();
+  }));
+  box.querySelectorAll("[data-clear]").forEach(b=>b.addEventListener("click", ()=>{
+    const col = b.dataset.clear;
+    delete filters.chips[col]; delete filters.num[col]; delete filters.search[col];
+    if(col === "_tags") filters.tags.clear();
+    buildFilters(); refresh();
+  }));
+  box.querySelectorAll("[data-num]").forEach(i=>i.addEventListener("input", ()=>{
+    const col = i.dataset.num;
+    filters.num[col] = filters.num[col] || {};
+    filters.num[col][i.dataset.side] = i.value === "" ? null : parseFloat(i.value);
+    refresh();
+  }));
+  box.querySelectorAll("[data-search]").forEach(i=>i.addEventListener("input", ()=>{
+    filters.search[i.dataset.search] = i.value;
+    refresh();
+  }));
+  renderChatFilters();
+}
+function countBy(fn, multi){
+  const m = new Map();
+  for(const r of rows){
+    const v = fn(r);
+    if(multi){ for(const x of v||[]) m.set(x,(m.get(x)||0)+1); }
+    else if(v !== undefined) m.set(v,(m.get(v)||0)+1);
+  }
+  return m;
+}
+function renderChatFilters(){
+  const box = document.getElementById("chatFilters");
+  box.innerHTML = filters.chat.map((f,i)=>
+    `<div class="chatfilter"><span>${esc(describeWhere(f))}</span><button data-x="${i}" title="Remove">✕</button></div>`).join("");
+  box.querySelectorAll("[data-x]").forEach(b=>b.addEventListener("click", ()=>{
+    filters.chat.splice(+b.dataset.x,1); renderChatFilters(); refresh();
+  }));
+}
+function describeWhere(w){
+  const conds = {is:"is",is_not:"isn't",contains:"contains",not_contains:"doesn't contain",starts_with:"starts with",
+    ends_with:"ends with",gt:">",gte:"≥",lt:"<",lte:"≤",between:"between",empty:"is empty",not_empty:"has a value"};
+  let s = `${w.col} ${conds[w.cond]||w.cond}`;
+  if(w.value != null && !["empty","not_empty"].includes(w.cond)) s += ` ${w.value}`;
+  if(w.cond === "between" && w.value2 != null) s += ` and ${w.value2}`;
+  return s;
+}
+
+/* ---------- filter evaluation ---------- */
+function rowMatches(r, w){
+  if(!w) return true;
+  let raw;
+  if(w.col === "_tags"){
+    const has = r._tags.map(t=>t.toLowerCase()).includes(String(w.value||"").toLowerCase());
+    return w.cond === "is_not" ? !has : has;
+  }
+  if(w.col === roleCol("date") && r._dateISO) raw = r._dateISO;
+  else raw = String(r[w.col] ?? "");
+  const s = raw.toLowerCase(), v = String(w.value ?? "").toLowerCase();
+  const num = parseFloat(String(raw).replace(/,/g,"")), nv = parseFloat(w.value), nv2 = parseFloat(w.value2);
+  const isNumCol = kindOf(w.col) === "number";
+  const eq = isNumCol && !isNaN(num) && !isNaN(nv) ? num === nv : s === v;
+  switch(w.cond){
+    case "is": return eq;
+    case "is_not": return !eq;
+    case "contains": return s.includes(v);
+    case "not_contains": return !s.includes(v);
+    case "starts_with": return s.startsWith(v);
+    case "ends_with": return s.endsWith(v);
+    case "gt": return kindOf(w.col)==="date" ? raw > w.value : num > nv;
+    case "gte": return kindOf(w.col)==="date" ? raw >= w.value : num >= nv;
+    case "lt": return kindOf(w.col)==="date" ? raw < w.value : num < nv;
+    case "lte": return kindOf(w.col)==="date" ? raw <= w.value : num <= nv;
+    case "between": return kindOf(w.col)==="date" ? (raw >= w.value && raw <= w.value2) : (num >= nv && num <= nv2);
+    case "empty": return raw.trim() === "";
+    case "not_empty": return raw.trim() !== "";
+    default: return true;
+  }
+}
+function visibleRows(){
+  const dCol = roleCol("date");
+  return rows.filter(r=>{
+    for(const [col,set] of Object.entries(filters.chips)){
+      if(!set.size) continue;
+      const v = col === "_src" ? r._src : (col === dCol ? (r._dateISO || "no date") : (String(r[col]??"").trim() || "—"));
+      if(!set.has(v)) return false;
+    }
+    if(filters.tags.size && !r._tags.some(t=>filters.tags.has(t))) return false;
+    for(const [col,f] of Object.entries(filters.num)){
+      const n = parseFloat(String(r[col]??"").replace(/,/g,""));
+      if(f.min != null && !(n >= f.min)) return false;
+      if(f.max != null && !(n <= f.max)) return false;
+    }
+    for(const [col,q] of Object.entries(filters.search)){
+      if(q && !String(r[col]??"").toLowerCase().includes(q.toLowerCase())) return false;
+    }
+    for(const w of filters.chat) if(!rowMatches(r,w)) return false;
+    return true;
+  });
+}
+
+/* ---------- map ---------- */
+const map = L.map("map", { zoomSnap:.5 }).setView([53.7,-2.5], 6);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+const markerLayer = L.layerGroup().addTo(map);
+const routeLayer = L.layerGroup().addTo(map);
+const markerByRow = new Map();
+let fittedOnce = false;
+
+const dateIndex = new Map();
+function dateColor(d){
+  if(d === "no date") return "#9AA5A0";
+  if(!dateIndex.has(d)) dateIndex.set(d, dateIndex.size);
+  return DATE_COLORS[dateIndex.get(d) % DATE_COLORS.length];
+}
+const tagIndex = new Map();
+function tagColor(t){
+  if(!tagIndex.has(t)) tagIndex.set(t, tagIndex.size);
+  return DATE_COLORS[(tagIndex.get(t)+3) % DATE_COLORS.length];
+}
+function catColor(v){
+  let hsh = 0; for(const ch of String(v)) hsh = (hsh*31 + ch.charCodeAt(0)) >>> 0;
+  return DATE_COLORS[hsh % DATE_COLORS.length];
+}
+function markerColor(r){
+  if(colorBy === "__date") return dateColor(r._dateISO || "no date");
+  if(colorBy === "__tags") return r._tags.length ? tagColor(r._tags[0]) : "#9AA5A0";
+  return catColor(String(r[colorBy] ?? ""));
+}
+
+function fmtDay(iso){
+  if(iso === "no date") return "no date";
+  const d = new Date(iso + "T00:00:00Z");
+  return d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" });
+}
+
+function drawMap(vis){
+  markerLayer.clearLayers();
+  markerByRow.clear();
+  const seenLL = new Map();   // jitter stacked postcodes so every order stays visible
+  const pts = [];
+  for(const r of vis){
+    if(!r._ll) continue;
+    const key = r._ll.join(",");
+    const k = seenLL.get(key) || 0;
+    seenLL.set(key, k+1);
+    const ang = k * 2.4;
+    const lat = r._ll[0] + (k ? Math.cos(ang)*0.004*Math.sqrt(k) : 0);
+    const lng = r._ll[1] + (k ? Math.sin(ang)*0.006*Math.sqrt(k) : 0);
+    const mk = L.circleMarker([lat,lng], {
+      radius:6, weight:1.5, color:"#ffffff", fillColor:markerColor(r), fillOpacity:.92,
+    }).addTo(markerLayer);
+    mk.bindPopup(popupFor(r));
+    markerByRow.set(r._i, mk);
+    pts.push([lat,lng]);
+  }
+  if(pts.length && !fittedOnce){
+    map.fitBounds(L.latLngBounds(pts).pad(0.12));
+    fittedOnce = true;
+  }
+}
+function popupFor(r){
+  const dCol = roleCol("date");
+  const lines = [];
+  const ref = roleCol("reference"), con = roleCol("consignee");
+  lines.push(`<b>${esc(r[con] || r[ref] || r._pc || "Order")}</b>`);
+  for(const h of [...headers, ...extraCols]){
+    const v = String(r[h] ?? "").trim();
+    if(!v || h === con) continue;
+    lines.push(`<span class="pk">${esc(h)}:</span> ${esc(v)}`);
+  }
+  if(r._tags.length) lines.push(`<span class="pk">Tags:</span> ${r._tags.map(esc).join(", ")}`);
+  return lines.slice(0, 12).join("<br>");
+}
+function drawLegend(vis){
+  const lg = document.getElementById("legend");
+  let entries = [];
+  if(colorBy === "__date"){
+    const m = new Map();
+    for(const r of vis){ const d = r._dateISO || "no date"; m.set(d,(m.get(d)||0)+1); }
+    entries = [...m.entries()].sort().map(([d,n])=>({label:fmtDay(d), color:dateColor(d), n}));
+  } else if(colorBy === "__tags"){
+    const m = new Map();
+    for(const r of vis) for(const t of r._tags) m.set(t,(m.get(t)||0)+1);
+    entries = [...m.entries()].map(([t,n])=>({label:t, color:tagColor(t), n}));
+  } else {
+    const m = new Map();
+    for(const r of vis){ const v = String(r[colorBy]??"").trim()||"—"; m.set(v,(m.get(v)||0)+1); }
+    entries = [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,14).map(([v,n])=>({label:v, color:catColor(v), n}));
+  }
+  const catCols = [...headers, ...extraCols].filter(h=>kindOf(h)==="category");
+  lg.innerHTML = `<span class="lg-label">Key</span>
+    <div class="chips">` + entries.map(e=>
+      `<button disabled style="cursor:default"><span class="dot" style="background:${e.color}"></span>${esc(e.label)} <span class="ct">${e.n}</span></button>`).join("") + `</div>
+    <span class="colorby">colour by
+      <select class="txt" id="colorBySel">
+        <option value="__date">Collection day</option>
+        <option value="__tags">Tags</option>
+        ${catCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join("")}
+      </select></span>`;
+  const sel = document.getElementById("colorBySel");
+  sel.value = colorBy;
+  sel.addEventListener("change", ()=>{ colorBy = sel.value; refresh(); });
+}
+
+/* ---------- stats + table ---------- */
+function drawStats(vis){
+  const bar = document.getElementById("statbar");
+  bar.hidden = !rows.length;
+  const wCol = roleCol("weight"), iCol = roleCol("items");
+  const sum = col => col ? vis.reduce((a,r)=>a + (parseFloat(String(r[col]).replace(/,/g,""))||0), 0) : null;
+  const days = new Set(vis.map(r=>r._dateISO).filter(Boolean)).size;
+  const located = vis.filter(r=>r._ll).length;
+  const unlocated = vis.filter(r=>r._pc && !r._ll && r._pc in pcCache).length;
+  const pending = vis.filter(r=>r._pc && !(r._pc in pcCache)).length;
+  const noPc = vis.filter(r=>!r._pc).length;
+  let html = `<span><b>${vis.length}</b> of ${rows.length} orders</span>`;
+  if(days) html += `<span><b>${days}</b> collection day${days===1?"":"s"}</span>`;
+  if(iCol) html += `<span><b>${fmtN(sum(iCol))}</b> items</span>`;
+  if(wCol) html += `<span><b>${fmtN(sum(wCol))}</b> kg</span>`;
+  html += `<span><b>${located}</b> on the map</span>`;
+  if(pending) html += `<span><b>${pending}</b> looking up…</span>`;
+  if(unlocated) html += `<span class="bad"><b>${unlocated}</b> postcode${unlocated===1?"":"s"} not found</span>`;
+  if(noPc) html += `<span class="bad"><b>${noPc}</b> without a postcode</span>`;
+  bar.innerHTML = html;
+}
+const fmtN = n => n == null ? "" : (Math.round(n*10)/10).toLocaleString("en-GB");
+
+let sortCol = null, sortDir = 1;
+function drawTable(vis){
+  const cols = [...headers, ...extraCols];
+  const thead = document.querySelector("#tbl thead");
+  const tbody = document.querySelector("#tbl tbody");
+  thead.innerHTML = "<tr>" + cols.map(h=>
+    `<th data-h="${esc(h)}">${esc(h)}${sortCol===h ? (sortDir>0?" ▲":" ▼"):""}</th>`).join("") + "<th>Tags</th></tr>";
+  let list = vis;
+  if(sortCol){
+    const k = kindOf(sortCol);
+    list = [...vis].sort((a,b)=>{
+      if(k === "number"){
+        return ((parseFloat(String(a[sortCol]).replace(/,/g,""))||0) - (parseFloat(String(b[sortCol]).replace(/,/g,""))||0)) * sortDir;
+      }
+      if(sortCol === roleCol("date")) return String(a._dateISO||"").localeCompare(String(b._dateISO||"")) * sortDir;
+      return String(a[sortCol]??"").localeCompare(String(b[sortCol]??"")) * sortDir;
+    });
+  }
+  const cap = 500;
+  tbody.innerHTML = list.slice(0,cap).map(r=>
+    `<tr data-i="${r._i}">` + cols.map(h=>{
+      const v = String(r[h] ?? "");
+      return `<td class="${kindOf(h)==='number'?'num':''}">${esc(v)}</td>`;
+    }).join("") + `<td>${r._tags.map(t=>`<span class="tagpill">${esc(t)}</span>`).join("")}</td></tr>`).join("");
+  document.getElementById("tblNote").textContent =
+    list.length > cap ? `Showing the first ${cap} of ${list.length} rows — filter down to see the rest.` : "";
+  thead.querySelectorAll("th[data-h]").forEach(th=>th.addEventListener("click", ()=>{
+    const h = th.dataset.h;
+    if(sortCol === h) sortDir = -sortDir; else { sortCol = h; sortDir = 1; }
+    refresh();
+  }));
+  tbody.querySelectorAll("tr").forEach(tr=>tr.addEventListener("click", ()=>{
+    const mk = markerByRow.get(+tr.dataset.i);
+    if(mk){ map.setView(mk.getLatLng(), Math.max(map.getZoom(), 11)); mk.openPopup(); }
+  }));
+}
+
+function refresh(){
+  if(!rows.length) return;
+  applyLatLng();
+  const vis = visibleRows();
+  drawStats(vis);
+  drawMap(vis);
+  drawLegend(vis);
+  drawTable(vis);
+  document.getElementById("routeBtn").textContent =
+    `Route visible stops (${new Set(vis.filter(r=>r._ll).map(r=>r._ll.join(","))).size})`;
+}
+
+/* ---------- routing (OSRM) ---------- */
+document.getElementById("routeBtn").addEventListener("click", planRoute);
+document.getElementById("routeClear").addEventListener("click", clearRoute);
+function clearRoute(){
+  routeLayer.clearLayers();
+  document.getElementById("routeRes").innerHTML = "";
+  document.getElementById("routeErr").textContent = "";
+  document.getElementById("routeClear").hidden = true;
+}
+async function planRoute(){
+  const err = document.getElementById("routeErr");
+  const res = document.getElementById("routeRes");
+  err.textContent = ""; res.innerHTML = "Planning…";
+  routeLayer.clearLayers();
+  const vis = visibleRows().filter(r=>r._ll);
+  // one stop per postcode
+  const stops = [];
+  const seen = new Set();
+  for(const r of vis){
+    const key = r._ll.join(",");
+    if(seen.has(key)) continue;
+    seen.add(key);
+    stops.push({ ll:r._ll, pc:r._pc, name:String(r[roleCol("consignee")]??r._pc??"").trim(), count:0 });
+  }
+  for(const r of vis){ const s = stops.find(s=>s.ll.join(",")===r._ll.join(",")); if(s) s.count++; }
+  if(stops.length < 2){ res.innerHTML=""; err.textContent = "Need at least two located stops — widen the filters."; return; }
+  if(stops.length > 90){ res.innerHTML=""; err.textContent = `That's ${stops.length} stops — the route planner tops out around 90. Filter down (e.g. one collection day) and try again.`; return; }
+
+  let coords = stops.map(s=>[s.ll[1], s.ll[0]]);
+  let startIdx = null;
+  const startPc = normPC(document.getElementById("routeStart").value);
+  if(document.getElementById("routeStart").value.trim() && !startPc){
+    res.innerHTML=""; err.textContent = "That start postcode doesn't look like a full UK postcode."; return;
+  }
+  if(startPc){
+    if(!(startPc in pcCache)){
+      try{
+        const r2 = await fetch("https://api.postcodes.io/postcodes/" + encodeURIComponent(startPc));
+        const o = await r2.json();
+        pcCache[startPc] = o.result ? [o.result.latitude, o.result.longitude] : null;
+        saveCache();
+      }catch(_){}
+    }
+    if(!pcCache[startPc]){ res.innerHTML=""; err.textContent = "Couldn't find that start postcode."; return; }
+    coords = [[pcCache[startPc][1], pcCache[startPc][0]], ...coords];
+    startIdx = 0;
+  }
+  const round = document.getElementById("routeRound").checked;
+  const params = startIdx === 0
+    ? `roundtrip=${round}&source=first${round?"":"&destination=any"}`
+    : `roundtrip=true`;
+  const url = `https://router.project-osrm.org/trip/v1/driving/` +
+    coords.map(c=>c.join(",")).join(";") +
+    `?${params}&geometries=geojson&overview=full`;
+  try{
+    const r2 = await fetch(url);
+    const out = await r2.json();
+    if(out.code !== "Ok" || !out.trips?.length) throw new Error(out.message || out.code);
+    const trip = out.trips[0];
+    L.geoJSON(trip.geometry, { style:{ color:"#D9641E", weight:4, opacity:.85 } }).addTo(routeLayer);
+    if(startPc){
+      L.circleMarker([pcCache[startPc][0], pcCache[startPc][1]], {radius:8, color:"#fff", weight:2, fillColor:"#182420", fillOpacity:1})
+        .bindPopup("<b>Start</b><br>"+startPc).addTo(routeLayer);
+    }
+    try{ map.fitBounds(L.geoJSON(trip.geometry).getBounds().pad(0.08)); }catch(_){}
+    const miles = trip.distance / 1609.344;
+    const h = Math.floor(trip.duration/3600), m = Math.round((trip.duration%3600)/60);
+    const order = out.waypoints
+      .map((w,i)=>({i, order:w.waypoint_index}))
+      .sort((a,b)=>a.order-b.order)
+      .filter(w=>!(startIdx===0 && w.i===0))
+      .map(w=>{
+        const s = stops[startIdx===0 ? w.i-1 : w.i];
+        return `<li>${esc(s.name || s.pc)} <span class="pk">· ${s.pc}${s.count>1 ? ` · ${s.count} orders`:""}</span></li>`;
+      });
+    res.innerHTML = `<b>${miles.toFixed(1)} mi</b> driving, about <b>${h ? h+"h " : ""}${m}m</b> across ${stops.length} stops.
+      <details><summary>Stop order</summary><ol>${order.join("")}</ol></details>`;
+    document.getElementById("routeClear").hidden = false;
+  }catch(e){
+    console.error(e);
+    res.innerHTML = "";
+    err.textContent = "Route planner didn't respond — it's a free public service and sometimes busy. Try again in a minute.";
+  }
+}
+
+/* ---------- data assistant ---------- */
+document.getElementById("chatSend").addEventListener("click", sendChat);
+document.getElementById("chatIn").addEventListener("keydown", e=>{ if(e.key==="Enter") sendChat(); });
+function chatMsg(cls, html){
+  const log = document.getElementById("chatLog");
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.innerHTML = html;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+async function sendChat(){
+  const inp = document.getElementById("chatIn");
+  const q = inp.value.trim();
+  if(!q || !rows.length) return;
+  inp.value = "";
+  chatMsg("user", esc(q));
+  const busy = chatMsg("bot", "…");
+  try{
+    const cols = [...headers, ...extraCols].map(h=>{
+      const vals = [...new Set(sampleVals(h, 200))];
+      return { name:h, role:(mapping[h]&&mapping[h].role)||"other", kind:kindOf(h),
+               uniques:vals.length, samples:vals.slice(0,6) };
+    });
+    const dCol = roleCol("date");
+    const dayCounts = {};
+    if(dCol) for(const r of rows){ const d=r._dateISO||"no date"; dayCounts[d]=(dayCounts[d]||0)+1; }
+    const stats = { rows: rows.length, visible: visibleRows().length, days: dayCounts };
+    const wCol = roleCol("weight");
+    if(wCol) stats.total_weight_kg = Math.round(rows.reduce((a,r)=>a+(parseFloat(String(r[wCol]).replace(/,/g,""))||0),0));
+    const res = await fetch(AI_URL, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+sbSession.access_token, "apikey": SB_KEY },
+      body: JSON.stringify({ mode:"chat", instruction:q, columns:cols,
+        tags:[...new Set(rows.flatMap(r=>r._tags))], stats, history:chatHistory }),
+    });
+    if(res.status === 429){ busy.className="msg bot err"; busy.textContent = "Daily AI limit reached — back tomorrow."; return; }
+    if(!res.ok) throw new Error("ai "+res.status);
+    const out = await res.json();
+    const didBits = [];
+    for(const op of out.ops || []) didBits.push(applyOp(op));
+    chatHistory.push({ user:q, assistant:out.answer });
+    if(chatHistory.length > 10) chatHistory.shift();
+    busy.innerHTML = esc(out.answer || "Done.") +
+      (didBits.filter(Boolean).length ? `<span class="did">${didBits.filter(Boolean).map(esc).join(" · ")}</span>` : "");
+    buildFilters(); refresh();
+  }catch(e){
+    console.error(e);
+    busy.className = "msg bot err";
+    busy.textContent = "The assistant couldn't respond — check your connection and try again.";
+  }
+}
+function applyOp(op){
+  const matched = op.where ? rows.filter(r=>rowMatches(r, op.where)) : rows;
+  if(op.op === "tag" && op.tag){
+    let n=0; for(const r of matched) if(!r._tags.includes(op.tag)){ r._tags.push(op.tag); n++; }
+    return `tagged ${n} row${n===1?"":"s"} “${op.tag}”`;
+  }
+  if(op.op === "untag" && op.tag){
+    let n=0; for(const r of matched){ const i=r._tags.indexOf(op.tag); if(i>=0){ r._tags.splice(i,1); n++; } }
+    return `untagged ${n} row${n===1?"":"s"}`;
+  }
+  if(op.op === "set" && op.field){
+    if(!headers.includes(op.field) && !extraCols.includes(op.field)){
+      extraCols.push(op.field);
+      mapping[op.field] = { role:"other", kind:"category" };
+    }
+    for(const r of matched) r[op.field] = op.value ?? "";
+    return `set ${op.field}=${op.value} on ${matched.length} row${matched.length===1?"":"s"}`;
+  }
+  if(op.op === "filter" && op.where){
+    filters.chat.push(op.where);
+    return `filter: ${describeWhere(op.where)}`;
+  }
+  if(op.op === "clear_filters"){
+    filters.chat = [];
+    return "cleared assistant filters";
+  }
+  return null;
+}
+
+/* ---------- utils ---------- */
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+</script>
+</body>
+</html>
