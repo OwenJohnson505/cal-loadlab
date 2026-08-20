@@ -1260,9 +1260,11 @@ function rowMatches(r, w){
     default: return true;
   }
 }
-function visibleRows(){
+let dayFocus = null;   // ISO date — view-only focus on one collection day (doesn't affect planning)
+function visibleRows(forPlanning){
   const dCol = roleCol("date");
   return rows.filter(r=>{
+    if(!forPlanning && dayFocus && (r._dateISO||"no date") !== dayFocus) return false;
     for(const [col,set] of Object.entries(filters.chips)){
       if(!set.size) continue;
       const v = col === "_src" ? r._src : (col === dCol ? (r._dateISO || "no date") : (String(r[col]??"").trim() || "—"));
@@ -1402,6 +1404,8 @@ function drawStats(vis){
   const pending = vis.filter(r=>r._pc && !(r._pc in pcCache)).length;
   const noPc = vis.filter(r=>!r._pc).length;
   let html = `<span><b>${vis.length}</b> of ${rows.length} orders</span>`;
+  if(dayFocus) html += `<span style="color:var(--accent-ink)">showing <b style="color:var(--accent-ink)">${fmtDay(dayFocus)}</b> only
+    <button id="dayFocusClear" style="border:0;background:none;color:var(--accent-ink);cursor:pointer;font:inherit;text-decoration:underline;padding:0">show all days</button></span>`;
   if(days) html += `<span><b>${days}</b> collection day${days===1?"":"s"}</span>`;
   if(iCol) html += `<span><b>${fmtN(sum(iCol))}</b> items</span>`;
   if(wCol) html += `<span><b>${fmtN(sum(wCol))}</b> kg</span>`;
@@ -1410,6 +1414,7 @@ function drawStats(vis){
   if(unlocated) html += `<span class="bad"><b>${unlocated}</b> postcode${unlocated===1?"":"s"} not found</span>`;
   if(noPc) html += `<span class="bad"><b>${noPc}</b> without a postcode</span>`;
   bar.innerHTML = html;
+  document.getElementById("dayFocusClear")?.addEventListener("click", ()=>{ dayFocus=null; refresh(); });
 }
 const fmtN = n => n == null ? "" : (Math.round(n*10)/10).toLocaleString("en-GB");
 
@@ -1725,13 +1730,47 @@ async function executeOps(ops){
             mets.forEach((m,i)=>{ a.sums[i]+=parseFloat(String(r[m]).replace(/,/g,""))||0; });
           }
           const entries=[...agg.entries()].sort();
-          document.getElementById("resultsPanel").hidden=false;
-          document.getElementById("scenarioOut").insertAdjacentHTML("beforeend",
-            `<div class="netpile-h">${esc(g==="__day"?"By day":g)}</div>
-            <div class="tblwrap" style="max-height:260px"><table><thead><tr><th>${esc(g==="__day"?"Day":g)}</th><th class="num">Orders</th>${mets.map(m=>`<th class="num">${esc(m)}</th>`).join("")}</tr></thead>
-            <tbody>${entries.map(([k,a])=>`<tr><td>${esc(k)}</td><td class="num">${a.n}</td>${a.sums.map(s=>`<td class="num">${fmtN(s)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+          appendResultTable(g==="__day"?"By day":g,
+            [g==="__day"?"Day":g, "Orders", ...mets],
+            entries.map(([k,a])=>[k, a.n, ...a.sums.map(fmtN)]));
           resultBits.push(`Summary by ${g==="__day"?"day":g}: ` + entries.slice(0,12).map(([k,a])=>`${k}: ${a.n} orders${mets.map((m,i)=>`, ${m} ${fmtN(a.sums[i])}`).join("")}`).join(" · "));
           did.push("summarised");
+          break;
+        }
+        case "focus_day": {
+          dayFocus = op.value && op.value !== "null" ? op.value : null;
+          did.push(dayFocus ? `showing ${fmtDay(dayFocus)} only` : "showing all days");
+          break;
+        }
+        case "compute": {
+          try{
+            const api = {
+              num: v=>parseFloat(String(v??"").replace(/[£,\s]/g,""))||0,
+              addTag:(r,t)=>{ if(r && r._tags && !r._tags.includes(t)) r._tags.push(t); },
+              fmtDay,
+            };
+            // shadow anything with side effects — this is pure data work
+            const fn = new Function("rows","api","fetch","XMLHttpRequest","localStorage","sessionStorage","document","window","globalThis","sb",
+              `"use strict";\n${op.value}`);
+            const out = fn(rows, api);
+            // pick up any columns the code created
+            const known = new Set(["_i","_src","_tags","_pc","_ll","_dateISO", ...headers, ...extraCols]);
+            const newCols = new Set();
+            for(const r of rows.slice(0,80)) for(const k of Object.keys(r)) if(!known.has(k)) newCols.add(k);
+            for(const c of newCols){
+              extraCols.push(c);
+              const numish = rows.slice(0,80).every(r=>r[c]==null || r[c]==="" || !isNaN(parseFloat(String(r[c]).replace(/,/g,""))));
+              mapping[c] = { role:"other", kind: numish ? "number" : "category" };
+            }
+            if(out && out.table) appendResultTable(out.table.title || op.label || "Analysis", out.table.columns || [], out.table.rows || []);
+            if(out && out.note) resultBits.push(String(out.note).slice(0,700));
+            did.push(op.label ? `computed: ${op.label}` : "computed");
+            if(newCols.size) did.push(`new column${newCols.size===1?"":"s"}: ${[...newCols].join(", ")}`);
+          }catch(e){
+            console.error("compute", e);
+            did.push(`compute failed — ${String(e.message||e).slice(0,90)}`);
+            resultBits.push(`The computation errored (${String(e.message||e).slice(0,90)}) — tell me and I'll try a different way.`);
+          }
           break;
         }
         case "clear_plan": clearFleetPlan(); did.push("plan cleared"); break;
@@ -2305,7 +2344,7 @@ async function runFleetPlan(){
   if(!p.vehicles.length){ status.textContent="Every vehicle is unticked in the rates panel — enable at least one."; return; }
   const rs=await resolveStart();
   if(rs.error){ status.textContent=rs.error; return; }
-  const vis=visibleRows().filter(r=>r._ll);
+  const vis=visibleRows(true).filter(r=>r._ll);
   if(!vis.length){ status.textContent="No located orders are visible — widen the filters."; return; }
   fleetLayer.clearLayers(); drawStartPin();
   const out=await computePlanDays(vis, p, fleetObjective, rs.start, t=>{ status.innerHTML=t; });
@@ -2337,8 +2376,23 @@ async function runScenario(label, where, objective, poolDays){
   if(scenarios.length>6) scenarios.shift();
   return scen;
 }
+function appendResultTable(title, columns, rowsArr){
+  document.getElementById("resultsPanel").hidden=false;
+  const wrap=document.createElement("div");
+  wrap.innerHTML=`<div class="netpile-h" style="display:flex;justify-content:space-between;align-items:baseline">
+      <span>${esc(title)}</span><button class="linkish" style="display:inline;width:auto;margin:0">remove</button></div>
+    <div class="tblwrap" style="max-height:280px"><table><thead><tr>${columns.map((c,i)=>`<th class="${i?"num":""}">${esc(c)}</th>`).join("")}</tr></thead>
+    <tbody>${rowsArr.slice(0,300).map(r=>`<tr>${r.map((v,i)=>`<td class="${i?"num":""}">${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    ${rowsArr.length>300?`<div class="scen-note">Showing the first 300 of ${rowsArr.length} rows.</div>`:""}`;
+  wrap.querySelector("button").addEventListener("click", ()=>wrap.remove());
+  document.getElementById("scenarioOut").appendChild(wrap);
+}
 function renderScenarios(){
-  const box=document.getElementById("scenarioOut");
+  let box=document.getElementById("scenarioCmp");
+  if(!box){
+    box=document.createElement("div"); box.id="scenarioCmp";
+    document.getElementById("scenarioOut").prepend(box);
+  }
   if(!scenarios.length){ box.innerHTML=""; return; }
   document.getElementById("resultsPanel").hidden=false;
   box.innerHTML=`<div class="netpile-h">Scenario comparison</div>
@@ -2388,7 +2442,17 @@ function renderFleetPlan(){
   html+=renderDayDetail(D, multi);
   document.getElementById("fpOut").innerHTML=html;
   document.querySelectorAll(".daytbl tr[data-day]").forEach(tr=>tr.addEventListener("click", ()=>{
-    fleetSelDay=+tr.dataset.day; renderFleetPlan();
+    fleetSelDay=+tr.dataset.day;
+    const iso=fleetPlan.days[fleetSelDay].day;
+    dayFocus = (dayFocus===iso) ? null : (iso==="no date"?null:iso);   // click again to unfocus
+    renderFleetPlan(); refresh();
+  }));
+  document.querySelectorAll(".rt-group[data-ri]").forEach(tr=>tr.addEventListener("click", e=>{
+    if(e.target.closest("a")) return;
+    const r=D.routes[+tr.dataset.ri];
+    if(!r || !r.stops.length) return;
+    const pts=[[fleetPlan.start.lat,fleetPlan.start.lng], ...r.stops.map(x=>[x.c.lat,x.c.lng])];
+    map.fitBounds(L.latLngBounds(pts).pad(0.15));
   }));
   wireMoves(D);
   drawFleetDay(D);
@@ -2405,7 +2469,7 @@ function renderDayDetail(D, multi){
   let rows="";
   D.routes.forEach((r,ri)=>{
     const over=r.time>p.dayMins+0.5;
-    rows+=`<tr class="rt-group"><td><span class="veh">Route ${r.n} — ${esc(r.vehicle)}</span> <a href="${gmapsUrl(r)}" target="_blank" rel="noopener" title="Open in Google Maps">🗺</a></td>
+    rows+=`<tr class="rt-group" data-ri="${ri}" style="cursor:pointer" title="Click to zoom the map to this route"><td><span class="veh">Route ${r.n} — ${esc(r.vehicle)}</span> <a href="${gmapsUrl(r)}" target="_blank" rel="noopener" title="Open in Google Maps">🗺</a></td>
       <td class="num">${r.parcels}</td><td class="num">${r.drops}</td><td class="num">${Math.round(r.weight).toLocaleString()}</td>
       <td class="num">${Math.round(r.miles)}</td><td class="num"${over?' style="color:var(--bad)"':""}>${fmtHMm(r.time)}${over?" ⚠":""}</td>
       <td class="num">${gbp(r.cost)}</td><td class="num">${gbp(r.net)}</td>
