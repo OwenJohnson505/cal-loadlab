@@ -31,7 +31,6 @@
     --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
     --warn:#D8B457; --warn-soft:#3A311A;
   }
-  .leaflet-tile{filter:brightness(.85) contrast(1.05) saturate(.85);}
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 html{-webkit-text-size-adjust:100%;}
@@ -567,12 +566,20 @@ document.getElementById("manualToggle").addEventListener("click", ()=>{
   document.getElementById("manualToggle").setAttribute("aria-pressed", !off);
 });
 function welcomeMessage(){
-  if(document.querySelector("#chatLog .msg")) return;   // only once
   const dCol = roleCol("date");
   const days = dCol ? new Set(rows.map(r=>r._dateISO).filter(Boolean)).size : 0;
-  const m = chatMsg("bot",
-    `Loaded <b>${rows.length.toLocaleString()}</b> orders${days?` across <b>${days}</b> collection days`:""} — they're going on the map now. What do you want to do with them?`);
-  addChips(m, [
+  const txt = `Loaded <b>${rows.length.toLocaleString()}</b> orders${days?` across <b>${days}</b> collection days`:""} — they're going on the map now. What do you want to do with them?`;
+  const started = !!document.querySelector("#chatLog .msg.user");
+  if(started){
+    // conversation underway — just note the change
+    chatMsg("bot", `Data updated — now <b>${rows.length.toLocaleString()}</b> orders${days?` across <b>${days}</b> collection days`:""}.`);
+    return;
+  }
+  let w = document.getElementById("welcomeMsg");
+  if(w){ w.querySelector(".wtxt").innerHTML = txt; return; }
+  w = chatMsg("bot", `<span class="wtxt">${txt}</span>`);
+  w.id = "welcomeMsg";
+  addChips(w, [
     "Split these into vehicle routes and price them",
     "Compare our pricing against what they pay now",
     "Summarise the days for me",
@@ -678,7 +685,7 @@ function renderSources(){
     rows = rows.filter(r=>r._src!==name);
     rows.forEach((r,i)=>r._i=i);
     if(!rows.length){ resetAll(); return; }
-    deriveRowMeta(); buildFilters(); refresh(); renderSources();
+    deriveRowMeta(); buildFilters(); refresh(); renderSources(); welcomeMessage();
   }));
 }
 function resetAll(){
@@ -1004,9 +1011,10 @@ function visibleRows(){
 
 /* ---------- map ---------- */
 const map = L.map("map", { zoomSnap:.5 }).setView([53.7,-2.5], 6);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+const darkMap = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/${darkMap?"dark_all":"light_all"}/{z}/{x}/{y}{r}.png`, {
+  maxZoom: 19, subdomains: "abcd",
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
 }).addTo(map);
 const markerLayer = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
