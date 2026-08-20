@@ -714,7 +714,7 @@ function serializeProject(){
     rows: rows.map(r=>{ const o={_src:r._src, _tags:r._tags}; for(const h of [...headers, ...extraCols]) o[h]=r[h]; return o; }),
     netRules, start: startPin, filtersChat: filters.chat,
     scenarios: scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool, totals:s.totals, days:s.days, orders:s.orders})),
-    chatHistory, fleetObjective,
+    chatHistory, fleetObjective, hadPlan: !!fleetPlan,
     fpNetRate: document.getElementById("fpNetRate").value,
   };
 }
@@ -764,14 +764,28 @@ async function openProject(id){
       document.getElementById("routePanel").hidden = false;
       document.getElementById("tablePanel").hidden = false;
       updateChargeNote();
-      refresh(); geocodeAll();
-      drawStartPin(); renderScenarios(); renderStateFeed();
+      refresh();
+      drawStartPin(); renderStateFeed();
       // replay the conversation
       for(const h of chatHistory){
         if(h.user) chatMsg("user", esc(h.user));
         if(h.assistant) chatMsg("bot", esc(h.assistant.split(" [results] ")[0]));
       }
-      chatMsg("bot", `Picked up <b>${esc(row.name)}</b> where you left off — ${rows.length.toLocaleString()} orders loaded. Anything applied is in the feed below; plans can be re-run from there or just ask me.`);
+      const rebuild = (d.hadPlan || scenarios.length) && startPin;
+      chatMsg("bot", `Picked up <b>${esc(row.name)}</b> where you left off — ${rows.length.toLocaleString()} orders loaded.` +
+        (rebuild ? " Recalculating your plans and scenarios now…" : " Anything applied is in the feed below, or just ask me."));
+      await geocodeAll();
+      if(rebuild){
+        if(d.hadPlan) await runFleetPlan();
+        if(scenarios.length){
+          const specs=scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool}));
+          scenarios=[];
+          for(const sp of specs) await runScenario(sp.label, sp.where, sp.objective, sp.pool);
+          renderScenarios();
+        }
+        renderStateFeed();
+        document.getElementById("fpStatus").textContent = "Plans rebuilt — same data, same settings, same numbers.";
+      } else renderScenarios();
     } else {
       chatMsg("bot", `Opened <b>${esc(row.name)}</b> — no data in it yet. Drop the spreadsheets in to get going.`);
     }
