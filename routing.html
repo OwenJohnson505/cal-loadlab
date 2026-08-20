@@ -1324,14 +1324,23 @@ async function sendChat(){
     const stats = { rows: rows.length, visible: visibleRows().length, days: dayCounts };
     const wCol = roleCol("weight");
     if(wCol) stats.total_weight_kg = Math.round(rows.reduce((a,r)=>a+(parseFloat(String(r[wCol]).replace(/,/g,""))||0),0));
-    const res = await fetch(AI_URL, {
-      method:"POST",
-      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+sbSession.access_token, "apikey": SB_KEY },
-      body: JSON.stringify({ mode:"chat", instruction:q, columns:cols,
-        tags:[...new Set(rows.flatMap(r=>r._tags))], stats, state:workspaceState(), history:chatHistory }),
-    });
-    if(res.status === 429){ busy.className="msg bot err"; busy.textContent = "Daily AI limit reached — back tomorrow."; return; }
-    if(!res.ok) throw new Error("ai "+res.status);
+    const reqBody = JSON.stringify({ mode:"chat", instruction:q, columns:cols,
+      tags:[...new Set(rows.flatMap(r=>r._tags))], stats, state:workspaceState(), history:chatHistory });
+    let res = null;
+    for(let attempt=0; attempt<3; attempt++){
+      try{
+        res = await fetch(AI_URL, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+sbSession.access_token, "apikey": SB_KEY },
+          body: reqBody,
+        });
+      }catch(_){ res = null; }
+      if(res && res.ok) break;
+      if(res && res.status === 429) break;               // daily limit — no point retrying
+      if(attempt < 2){ busy.textContent = "… still thinking"; await new Promise(r=>setTimeout(r, 2500*(attempt+1))); }
+    }
+    if(res && res.status === 429){ busy.className="msg bot err"; busy.textContent = "Daily AI limit reached — back tomorrow."; return; }
+    if(!res || !res.ok) throw new Error("ai "+(res?res.status:"network"));
     const out = await res.json();
     const exec = await executeOps(out.ops || []);
     busy.innerHTML = esc(out.answer || "Done.") +
