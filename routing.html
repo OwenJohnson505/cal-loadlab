@@ -1569,7 +1569,8 @@ function workspaceState(){
   return {
     start: startPin ? startPin.label : null,
     vehicles: SETTINGS.vehicles.map(v=>({name:v.name, enabled:v.on, payload_kg:v.payload, min_charge:v.minCharge, incl_miles:v.minMiles, per_mile:v.perMile})),
-    per_drop: SETTINGS.perDrop, driver_day_hours: SETTINGS.dayHours,
+    per_drop: SETTINGS.perDrop, free_drops: SETTINGS.freeDrops||0, driver_day_hours: SETTINGS.dayHours,
+    network_basis: netRules.basis || "per_parcel",
     charge_column: roleCol("charge"),
     network_default_rate: parseFloat(document.getElementById("fpNetRate").value)||null,
     network_rules: (netRules.rules||[]).map(r=>({where:describeWhere(r.where), rate:r.rate})),
@@ -1590,8 +1591,11 @@ async function sendChat(){
   const q = inp.value.trim();
   if(!q || !rows.length) return;
   inp.value = "";
-  chatMsg("user", esc(q));
-  const busy = chatMsg("bot", "…");
+  await chatTurn(q, false);
+}
+async function chatTurn(q, isRepair){
+  if(!isRepair) chatMsg("user", esc(q));
+  const busy = chatMsg("bot", isRepair ? "fixing that computation…" : "…");
   try{
     const cols = [...headers, ...extraCols].map(h=>{
       const vals = [...new Set(sampleVals(h, 200))];
@@ -1639,6 +1643,13 @@ async function sendChat(){
     chatHistory.push({ user:q, assistant:assistantMemo });
     if(chatHistory.length > 12) chatHistory.shift();
     buildFilters(); refresh();
+    // a failed computation gets one automatic repair round — the model sees its own error
+    if(!isRepair){
+      const fail = exec.did.find(d=>d.startsWith("compute failed"));
+      if(fail){
+        await chatTurn(`[auto] Your compute op errored: "${fail}". Send a corrected compute op now. Remember: the code is the BODY of a function (rows, api) — iterate with for (const r of rows) { ... } and never reference variables you haven't declared.`, true);
+      }
+    }
   }catch(e){
     console.error(e);
     busy.className = "msg bot err";
@@ -1672,20 +1683,49 @@ async function executeOps(ops){
         }
         case "set_vehicles": {
           const list = (op.vehicles||[]).map(v=>String(v).toLowerCase());
+          const isExactVehicle = x => SETTINGS.vehicles.some(o=>o.name.toLowerCase()===x);
+          const prev = SETTINGS.vehicles.map(v=>v.on);
           SETTINGS.vehicles.forEach(v=>{
-            v.on = !list.length || list.some(x=>v.name.toLowerCase().includes(x)||x.includes(v.name.toLowerCase()));
+            const a=v.name.toLowerCase();
+            v.on = !list.length || list.some(x=> a===x || (!isExactVehicle(x) && (a.includes(x)||x.includes(a))));
           });
+          if(list.length && !SETTINGS.vehicles.some(v=>v.on)){
+            SETTINGS.vehicles.forEach((v,i)=>v.on=prev[i]);   // nothing matched — don't strand the fleet
+            did.push(`no vehicle called "${op.vehicles.join(", ")}" — kept the current selection`);
+          } else {
+            did.push(list.length ? `vehicles: ${SETTINGS.vehicles.filter(v=>v.on).map(v=>v.name).join(", ")}` : "all vehicles enabled");
+          }
           saveSettings(); renderRates();
-          did.push(list.length ? `vehicles: ${SETTINGS.vehicles.filter(v=>v.on).map(v=>v.name).join(", ")||"none matched!"}` : "all vehicles enabled");
           break;
         }
         case "set_net_rules": {
           if(op.rate != null){ document.getElementById("fpNetRate").value = op.rate; }
+          if(op.value === "per_order" || op.value === "per_parcel") netRules.basis = op.value;
           if(op.rules != null) netRules.rules = op.rules.filter(r=>r && r.where);
+          const unit = b => b==="per_order" ? "/delivery" : "/parcel";
           const bits=[];
-          if(op.rate!=null) bits.push(`default £${op.rate}/parcel`);
-          for(const r of netRules.rules) bits.push(`${describeWhere(r.where)} → £${r.rate}/parcel`);
+          if(op.rate!=null) bits.push(`default £${op.rate}${unit(netRules.basis)}`);
+          for(const r of netRules.rules) bits.push(`${describeWhere(r.where)} → £${r.rate}${unit(r.basis)}`);
           did.push("network pricing: " + (bits.join(", ")||"unchanged"));
+          break;
+        }
+        case "set_rates": {
+          const bits=[];
+          for(const v of (op.vehicles||[])){
+            const nm=String(v.name||"").toLowerCase();
+            const t=SETTINGS.vehicles.find(x=>x.name.toLowerCase()===nm)
+              || SETTINGS.vehicles.find(x=>x.name.toLowerCase().includes(nm) || nm.includes(x.name.toLowerCase()));
+            if(!t) continue;
+            if(v.min_charge!=null) t.minCharge=+v.min_charge;
+            if(v.incl_miles!=null) t.minMiles=+v.incl_miles;
+            if(v.per_mile!=null) t.perMile=+v.per_mile;
+            bits.push(`${t.name} £${t.minCharge} min / ${t.minMiles} mi incl / £${t.perMile}/mi`);
+          }
+          if(op.per_drop!=null){ SETTINGS.perDrop=+op.per_drop; bits.push(`£${SETTINGS.perDrop}/drop`); }
+          if(op.free_drops!=null){ SETTINGS.freeDrops=+op.free_drops; bits.push(`${SETTINGS.freeDrops} drop${SETTINGS.freeDrops===1?"":"s"} incl. in min`); }
+          if(op.day_hours!=null){ SETTINGS.dayHours=+op.day_hours; bits.push(`${SETTINGS.dayHours}h day`); }
+          saveSettings(); renderRates();
+          did.push("our rates: " + (bits.join(" · ")||"unchanged"));
           break;
         }
         case "fleet_plan": {
@@ -1832,7 +1872,7 @@ const FLEET_DEFAULTS = {
     { name:"18T",       payload:9000,  on:true,  minCharge:120, minMiles:10, perMile:2.20 },
     { name:"Artic",     payload:26000, on:true,  minCharge:180, minMiles:10, perMile:2.60 },
   ],
-  perDrop:8, loadMins:30, stopMins:7, dayHours:8,
+  perDrop:8, freeDrops:0, loadMins:30, stopMins:7, dayHours:8,
 };
 let SETTINGS;
 try{ SETTINGS = JSON.parse(localStorage.getItem("ll-fleet-settings-v1")); }catch(_){}
@@ -1853,6 +1893,7 @@ function renderRates(){
   </div>
   <div class="rates-globals">
     <label>£/drop <input class="txt" type="number" step="0.5" data-g="perDrop" value="${SETTINGS.perDrop}"></label>
+    <label>drops incl. <input class="txt" type="number" step="1" data-g="freeDrops" value="${SETTINGS.freeDrops||0}" title="Stops covered by the minimum charge (1 = first drop free)"></label>
     <label>load mins <input class="txt" type="number" step="5" data-g="loadMins" value="${SETTINGS.loadMins}"></label>
     <label>mins/stop <input class="txt" type="number" step="1" data-g="stopMins" value="${SETTINGS.stopMins}"></label>
     <label>driver day (h) <input class="txt" type="number" step="0.5" data-g="dayHours" value="${SETTINGS.dayHours}"></label>
@@ -1879,7 +1920,7 @@ function fleetParams(){
   return {
     vehicles: vs,
     maxPayload: vs.length ? Math.max(...vs.map(v=>v.payload)) : 0,
-    perDrop: SETTINGS.perDrop, loadMins: SETTINGS.loadMins,
+    perDrop: SETTINGS.perDrop, freeDrops: SETTINGS.freeDrops||0, loadMins: SETTINGS.loadMins,
     stopMins: SETTINGS.stopMins, dayMins: SETTINGS.dayHours*60,
     netRate: parseFloat(document.getElementById("fpNetRate").value)||0,
   };
@@ -1889,7 +1930,7 @@ function costFor(miles, drops, weight, p){
   let best = null;
   for(const v of p.vehicles){
     if(weight > v.payload) continue;
-    const c = v.minCharge + v.perMile*Math.max(0, miles - v.minMiles) + p.perDrop*drops;
+    const c = v.minCharge + v.perMile*Math.max(0, miles - v.minMiles) + p.perDrop*Math.max(0, drops - (p.freeDrops||0));
     if(!best || c < best.cost) best = { cost:c, vehicle:v.name, perMile:v.perMile };
   }
   return best;
@@ -2271,9 +2312,10 @@ function rowNet(r, p){
   const cCol=roleCol("charge");
   if(cCol) return parseFloat(String(r[cCol]).replace(/[£,\s]/g,""))||0;
   for(const rule of (netRules.rules||[])){
-    if(rule.where && rowMatches(r, rule.where)) return rowParcelsOf(r)*rule.rate;
+    if(rule.where && rowMatches(r, rule.where))
+      return rule.basis === "per_order" ? rule.rate : rowParcelsOf(r)*rule.rate;
   }
-  return rowParcelsOf(r)*p.netRate;
+  return netRules.basis === "per_order" ? p.netRate : rowParcelsOf(r)*p.netRate;
 }
 async function resolveStart(){
   const spc=normPC(document.getElementById("fpStart").value);
@@ -2619,10 +2661,11 @@ function renderStateFeed(){
     cards.push(`<div class="fcard"><div class="ft"><span>Their price (network)</span></div>
       <div class="frow2">Using the sheet's <b>${esc(cCol)}</b> column — real invoiced charges.</div></div>`);
   } else if((netRules.rules||[]).length || fleetPlan || scenarios.length){
+    const unit = b => b==="per_order" ? "/delivery" : "/parcel";
     cards.push(`<div class="fcard"><div class="ft"><span>Their price (network)</span></div>
-      <div class="frow2"><span>default</span> £<input type="number" step="0.05" class="txt" data-feed="netrate" value="${parseFloat(document.getElementById("fpNetRate").value)||0}"><span>/parcel</span></div>` +
+      <div class="frow2"><span>default</span> £<input type="number" step="0.05" class="txt" data-feed="netrate" value="${parseFloat(document.getElementById("fpNetRate").value)||0}"><span>${unit(netRules.basis)}</span></div>` +
       (netRules.rules||[]).map((r,i)=>`<div class="frow2"><b>${esc(describeWhere(r.where))}</b>
-        <span>→ £</span><input type="number" step="0.05" class="txt" data-feed="rulerate" data-i="${i}" value="${r.rate}"><span>/parcel</span>
+        <span>→ £</span><input type="number" step="0.05" class="txt" data-feed="rulerate" data-i="${i}" value="${r.rate}"><span>${unit(r.basis)}</span>
         <button class="x" data-feed="del-rule" data-i="${i}" title="Remove">✕</button></div>`).join("") + `</div>`);
   }
 
@@ -2632,6 +2675,7 @@ function renderStateFeed(){
     cards.push(`<div class="fcard"><div class="ft"><span>Our costs</span></div>
       <div class="frow2"><b>${on.length===SETTINGS.vehicles.length?"Whole fleet":on.map(v=>v.name).join(", ")||"no vehicles!"}</b></div>
       <div class="frow2"><span>£</span><input type="number" step="0.5" class="txt" data-feed="perdrop" value="${SETTINGS.perDrop}"><span>/drop ·</span>
+        <input type="number" step="1" class="txt" style="width:46px" data-feed="freedrops" value="${SETTINGS.freeDrops||0}" title="Stops covered by the minimum charge"><span>incl ·</span>
         <input type="number" step="0.5" class="txt" style="width:52px" data-feed="dayh" value="${SETTINGS.dayHours}"><span>h driver day</span></div>
       <details><summary style="cursor:pointer;font-size:11.5px;color:var(--faint)">vehicle rates</summary>
         <div class="rates-mini" style="margin-top:7px">
@@ -2696,6 +2740,9 @@ function renderStateFeed(){
   }));
   q('[data-feed="perdrop"]').forEach(el=>el.addEventListener("change", ()=>{
     SETTINGS.perDrop=parseFloat(el.value)||0; saveSettings(); renderRates(); scheduleRerun();
+  }));
+  q('[data-feed="freedrops"]').forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS.freeDrops=Math.max(0,parseInt(el.value)||0); saveSettings(); renderRates(); scheduleRerun();
   }));
   q('[data-feed="dayh"]').forEach(el=>el.addEventListener("change", ()=>{
     SETTINGS.dayHours=parseFloat(el.value)||8; saveSettings(); renderRates(); scheduleRerun();
