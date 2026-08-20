@@ -224,6 +224,27 @@ body.manual-off .panel.manual{display:none;}
 .msg.results{align-self:flex-start; background:var(--good-soft); border:1px solid var(--good-soft); color:var(--ink); font-size:12.5px; max-width:94%; border-radius:10px; padding:8px 11px;}
 .scen-note{font-size:12px; color:var(--faint); margin-top:6px;}
 
+/* ---- applied feed ---- */
+.feed{display:flex; flex-direction:column; gap:10px;}
+.fcard{background:var(--surface2); border:1px solid var(--line2); border-radius:10px; padding:10px 12px;}
+.fcard .ft{display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:7px;}
+.fcard .ft button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:10.5px; text-decoration:underline; text-transform:none; letter-spacing:0;}
+.fcard .ft button:hover{color:var(--bad);}
+.frow2{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); margin-bottom:5px; flex-wrap:wrap;}
+.frow2:last-child{margin-bottom:0;}
+.frow2 b{color:var(--ink); font-weight:600;}
+.frow2 input{width:74px; font-family:"IBM Plex Mono",monospace; font-size:12px; padding:4px 7px;}
+.frow2 input.wide{width:110px;}
+.frow2 .x{border:0; background:none; color:var(--faint); cursor:pointer; font-size:13px; padding:0 2px; margin-left:auto;}
+.frow2 .x:hover{color:var(--bad);}
+.fcard .chips button{font-size:11.5px; padding:3px 9px;}
+.rates-mini{display:grid; grid-template-columns:1fr 64px 64px; gap:4px 8px; align-items:center; font-size:12px; color:var(--muted);}
+.rates-mini .rh{font-size:9.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--faint);}
+.rates-mini input{width:100%; font-family:"IBM Plex Mono",monospace; font-size:12px; padding:4px 6px;}
+.rates-mini .off{opacity:.45;}
+.feed-updating{font-size:11.5px; color:var(--accent-ink); margin-top:2px; min-height:14px;}
+
 /* ---- chat ---- */
 .chat-log{display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto; margin-bottom:10px;}
 .msg{font-size:13px; line-height:1.5; border-radius:10px; padding:8px 11px; max-width:94%;}
@@ -317,6 +338,13 @@ body.manual-off .panel.manual{display:none;}
         <input class="txt" id="chatIn" placeholder="What do you want to do with this data?">
         <button class="primary" id="chatSend" type="button">Send</button>
       </div>
+    </section>
+
+    <section class="panel" id="feedPanel" hidden>
+      <h2>Applied</h2>
+      <div class="hint">Everything currently shaping the numbers. Edit anything here — plans and scenarios recalculate on their own.</div>
+      <div class="feed" id="stateFeed"></div>
+      <div class="feed-updating" id="feedStatus"></div>
     </section>
 
     <section class="panel manual" id="filterPanel" hidden>
@@ -657,8 +685,9 @@ function resetAll(){
   rows=[]; headers=[]; mapping={}; sources=[]; extraCols=[];
   filters={chips:{},num:{},search:{},tags:new Set(),chat:[]};
   document.getElementById("srcList").innerHTML="";
-  ["filterPanel","fleetPanel","routePanel","tablePanel","resultsPanel"].forEach(id=>document.getElementById(id).hidden=true);
+  ["filterPanel","fleetPanel","routePanel","tablePanel","resultsPanel","feedPanel"].forEach(id=>document.getElementById(id).hidden=true);
   clearFleetPlan();
+  scenarios=[]; startPin=null; netRules={rate:null, rules:[]};
   document.getElementById("statbar").hidden=true;
   markerLayer.clearLayers(); clearRoute();
   document.getElementById("legend").innerHTML="";
@@ -1421,6 +1450,7 @@ async function executeOps(ops){
     renderScenarios();
     document.getElementById("fpStatus").textContent = "Scenarios done — comparison below.";
   }
+  renderStateFeed();
   return { did: did.filter(Boolean), results: resultBits.join("<br>") };
 }
 function applyOp(op){
@@ -1872,14 +1902,16 @@ map.on("click", e=>{
   document.getElementById("fpPin").setAttribute("aria-pressed", false);
   document.getElementById("fpStart").value="";
   document.getElementById("fpStatus").textContent="Start pinned — drag it to adjust, then Plan the fleet.";
-  drawStartPin();
+  drawStartPin(); renderStateFeed();
 });
 function drawStartPin(){
   fleetLayer.eachLayer(l=>{ if(l._isStartPin) fleetLayer.removeLayer(l); });
   if(!startPin) return;
   const mk=L.marker([startPin.lat,startPin.lng],{draggable:true,title:"Start"});
   mk._isStartPin=true;
-  mk.on("dragend",()=>{ const ll=mk.getLatLng(); startPin={lat:ll.lat,lng:ll.lng,label:"pinned point"}; });
+  mk.on("dragend",()=>{ const ll=mk.getLatLng(); startPin={lat:ll.lat,lng:ll.lng,label:"pinned point"};
+    document.getElementById("fpStart").value=""; renderStateFeed();
+    if(fleetPlan||scenarios.length) scheduleRerun(); });
   mk.bindPopup("<b>Start</b>");
   mk.addTo(fleetLayer);
 }
@@ -1990,6 +2022,7 @@ async function runFleetPlan(){
   document.getElementById("fpClear").hidden=false;
   document.getElementById("fpCsv").hidden=false;
   renderFleetPlan();
+  renderStateFeed();
 }
 
 /* --- scenarios: fleet-plan a labelled subset without touching the page filters --- */
@@ -2004,7 +2037,8 @@ async function runScenario(label, where, objective, poolDays){
   const days=await computePlanDays(rowsList, p, objective||fleetObjective, startPin, t=>{
     document.getElementById("fpStatus").innerHTML=`${esc(label)}: ${t}`;
   }, poolDays);
-  const scen={label, where, totals:totalsOf(days), days:days.length, orders:rowsList.length};
+  const scen={label, where, objective:objective||fleetObjective, pool:poolDays||1,
+    totals:totalsOf(days), days:days.length, orders:rowsList.length};
   scenarios.push(scen);
   if(scenarios.length>6) scenarios.shift();
   return scen;
@@ -2169,6 +2203,163 @@ document.getElementById("fpCsv").addEventListener("click", ()=>{
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
   a.download="fleet-plan.csv"; a.click(); URL.revokeObjectURL(a.href);
 });
+
+/* ================= applied-state feed =================
+   Cards appear only for what's actually in play; edits recalculate plans/scenarios. */
+let rerunTimer=null;
+function scheduleRerun(){
+  clearTimeout(rerunTimer);
+  document.getElementById("feedStatus").textContent="Recalculating…";
+  rerunTimer=setTimeout(async ()=>{
+    try{
+      if(fleetPlan) await runFleetPlan();
+      if(scenarios.length){
+        const specs=scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool}));
+        scenarios=[];
+        for(const sp of specs) await runScenario(sp.label, sp.where, sp.objective, sp.pool);
+        renderScenarios();
+      }
+    }finally{
+      document.getElementById("feedStatus").textContent="";
+      renderStateFeed();
+    }
+  }, 600);
+}
+function feedHasContent(){
+  return !!startPin || scenarios.length>0 || (netRules.rules||[]).length>0 || !!roleCol("charge")
+    || !!fleetPlan || filters.chat.length>0 || rows.some(r=>r._tags.length);
+}
+function renderStateFeed(){
+  const panel=document.getElementById("feedPanel");
+  const feed=document.getElementById("stateFeed");
+  if(!rows.length || !feedHasContent()){ panel.hidden=true; feed.innerHTML=""; return; }
+  panel.hidden=false;
+  const cards=[];
+
+  // start / collection location
+  if(startPin){
+    cards.push(`<div class="fcard"><div class="ft"><span>Start point</span></div>
+      <div class="frow2"><b>${esc(startPin.label)}</b>
+        <input class="txt wide" id="feedStart" placeholder="change postcode…">
+        <button class="ghost" id="feedStartGo" type="button" style="padding:4px 9px;font-size:11.5px">Set</button></div>
+      <div class="frow2" style="margin:0;font-size:11px;color:var(--faint)">or drag the pin on the map, then anything planned re-runs</div></div>`);
+  }
+
+  // lead time / scenarios
+  if(scenarios.length){
+    cards.push(`<div class="fcard"><div class="ft"><span>Scenarios &amp; lead time</span>
+        <button type="button" data-feed="clear-scen">remove all</button></div>` +
+      scenarios.map((s,i)=>`<div class="frow2"><b>${esc(s.label)}</b>
+        <span>lead</span><input type="number" min="1" max="7" class="txt" style="width:52px" data-feed="pool" data-i="${i}" value="${s.pool||1}"><span>day${(s.pool||1)===1?"":"s"}</span>
+        <button class="x" data-feed="del-scen" data-i="${i}" title="Remove">✕</button></div>`).join("") + `</div>`);
+  }
+
+  // network / competitor pricing
+  const cCol=roleCol("charge");
+  if(cCol){
+    cards.push(`<div class="fcard"><div class="ft"><span>Their price (network)</span></div>
+      <div class="frow2">Using the sheet's <b>${esc(cCol)}</b> column — real invoiced charges.</div></div>`);
+  } else if((netRules.rules||[]).length || fleetPlan || scenarios.length){
+    cards.push(`<div class="fcard"><div class="ft"><span>Their price (network)</span></div>
+      <div class="frow2"><span>default</span> £<input type="number" step="0.05" class="txt" data-feed="netrate" value="${parseFloat(document.getElementById("fpNetRate").value)||0}"><span>/parcel</span></div>` +
+      (netRules.rules||[]).map((r,i)=>`<div class="frow2"><b>${esc(describeWhere(r.where))}</b>
+        <span>→ £</span><input type="number" step="0.05" class="txt" data-feed="rulerate" data-i="${i}" value="${r.rate}"><span>/parcel</span>
+        <button class="x" data-feed="del-rule" data-i="${i}" title="Remove">✕</button></div>`).join("") + `</div>`);
+  }
+
+  // our costs
+  if(fleetPlan || scenarios.length){
+    const on=SETTINGS.vehicles.filter(v=>v.on);
+    cards.push(`<div class="fcard"><div class="ft"><span>Our costs</span></div>
+      <div class="frow2"><b>${on.length===SETTINGS.vehicles.length?"Whole fleet":on.map(v=>v.name).join(", ")||"no vehicles!"}</b></div>
+      <div class="frow2"><span>£</span><input type="number" step="0.5" class="txt" data-feed="perdrop" value="${SETTINGS.perDrop}"><span>/drop ·</span>
+        <input type="number" step="0.5" class="txt" style="width:52px" data-feed="dayh" value="${SETTINGS.dayHours}"><span>h driver day</span></div>
+      <details><summary style="cursor:pointer;font-size:11.5px;color:var(--faint)">vehicle rates</summary>
+        <div class="rates-mini" style="margin-top:7px">
+          <span class="rh">Vehicle</span><span class="rh">Min £</span><span class="rh">£/mile</span>
+          ${SETTINGS.vehicles.map((v,i)=>`
+            <span class="${v.on?"":"off"}">${esc(v.name)}</span>
+            <input type="number" step="1" class="txt ${v.on?"":"off"}" data-feed="vmin" data-i="${i}" value="${v.minCharge}">
+            <input type="number" step="0.05" class="txt ${v.on?"":"off"}" data-feed="vmile" data-i="${i}" value="${v.perMile}">`).join("")}
+        </div>
+        <div class="frow2" style="margin-top:6px;font-size:11px;color:var(--faint)">Tick vehicles on/off in Manual controls, or just tell the assistant.</div>
+      </details></div>`);
+  }
+
+  // assistant filters
+  if(filters.chat.length){
+    cards.push(`<div class="fcard"><div class="ft"><span>Filters</span>
+        <button type="button" data-feed="clear-filters">clear all</button></div>` +
+      filters.chat.map((w,i)=>`<div class="frow2"><b>${esc(describeWhere(w))}</b>
+        <button class="x" data-feed="del-filter" data-i="${i}" title="Remove">✕</button></div>`).join("") + `</div>`);
+  }
+
+  // tags
+  const tagCounts=new Map();
+  for(const r of rows) for(const t of r._tags) tagCounts.set(t,(tagCounts.get(t)||0)+1);
+  if(tagCounts.size){
+    cards.push(`<div class="fcard"><div class="ft"><span>Tags</span></div>` +
+      [...tagCounts.entries()].map(([t,n])=>`<div class="frow2"><b>${esc(t)}</b><span>${n} row${n===1?"":"s"}</span>
+        <button class="x" data-feed="del-tag" data-t="${esc(t)}" title="Remove tag from all rows">✕</button></div>`).join("") + `</div>`);
+  }
+
+  feed.innerHTML=cards.join("");
+
+  // wiring
+  const q=s=>feed.querySelectorAll(s);
+  const startGo=async ()=>{
+    const v=feed.querySelector("#feedStart")?.value.trim();
+    if(!v) return;
+    document.getElementById("fpStart").value=v;
+    const rs=await resolveStart();
+    if(rs.error){ document.getElementById("feedStatus").textContent=rs.error; return; }
+    renderStateFeed(); scheduleRerun();
+  };
+  feed.querySelector("#feedStartGo")?.addEventListener("click", startGo);
+  feed.querySelector("#feedStart")?.addEventListener("keydown", e=>{ if(e.key==="Enter") startGo(); });
+  q('[data-feed="pool"]').forEach(el=>el.addEventListener("change", ()=>{
+    scenarios[+el.dataset.i].pool=Math.max(1,parseInt(el.value)||1); scheduleRerun();
+  }));
+  q('[data-feed="del-scen"]').forEach(el=>el.addEventListener("click", ()=>{
+    scenarios.splice(+el.dataset.i,1); renderScenarios(); renderStateFeed();
+  }));
+  feed.querySelector('[data-feed="clear-scen"]')?.addEventListener("click", ()=>{
+    scenarios=[]; renderScenarios(); renderStateFeed();
+  });
+  q('[data-feed="netrate"]').forEach(el=>el.addEventListener("change", ()=>{
+    document.getElementById("fpNetRate").value=el.value; netRules.rate=parseFloat(el.value)||0; scheduleRerun();
+  }));
+  q('[data-feed="rulerate"]').forEach(el=>el.addEventListener("change", ()=>{
+    netRules.rules[+el.dataset.i].rate=parseFloat(el.value)||0; scheduleRerun();
+  }));
+  q('[data-feed="del-rule"]').forEach(el=>el.addEventListener("click", ()=>{
+    netRules.rules.splice(+el.dataset.i,1); scheduleRerun();
+  }));
+  q('[data-feed="perdrop"]').forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS.perDrop=parseFloat(el.value)||0; saveSettings(); renderRates(); scheduleRerun();
+  }));
+  q('[data-feed="dayh"]').forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS.dayHours=parseFloat(el.value)||8; saveSettings(); renderRates(); scheduleRerun();
+  }));
+  q('[data-feed="vmin"]').forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS.vehicles[+el.dataset.i].minCharge=parseFloat(el.value)||0; saveSettings(); renderRates(); scheduleRerun();
+  }));
+  q('[data-feed="vmile"]').forEach(el=>el.addEventListener("change", ()=>{
+    SETTINGS.vehicles[+el.dataset.i].perMile=parseFloat(el.value)||0; saveSettings(); renderRates(); scheduleRerun();
+  }));
+  q('[data-feed="del-filter"]').forEach(el=>el.addEventListener("click", ()=>{
+    filters.chat.splice(+el.dataset.i,1); buildFilters(); refresh(); renderStateFeed(); if(fleetPlan) scheduleRerun();
+  }));
+  feed.querySelector('[data-feed="clear-filters"]')?.addEventListener("click", ()=>{
+    filters.chat=[]; buildFilters(); refresh(); renderStateFeed(); if(fleetPlan) scheduleRerun();
+  });
+  q('[data-feed="del-tag"]').forEach(el=>el.addEventListener("click", ()=>{
+    const t=el.dataset.t;
+    for(const r of rows){ const i=r._tags.indexOf(t); if(i>=0) r._tags.splice(i,1); }
+    filters.tags.delete(t);
+    buildFilters(); refresh(); renderStateFeed();
+  }));
+}
 
 /* ---------- utils ---------- */
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
