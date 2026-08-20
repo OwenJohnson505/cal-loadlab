@@ -714,7 +714,7 @@ function serializeProject(){
     rows: rows.map(r=>{ const o={_src:r._src, _tags:r._tags}; for(const h of [...headers, ...extraCols]) o[h]=r[h]; return o; }),
     netRules, start: startPin, filtersChat: filters.chat,
     scenarios: scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool, totals:s.totals, days:s.days, orders:s.orders})),
-    chatHistory, fleetObjective, hadPlan: !!fleetPlan,
+    chatHistory, fleetObjective, hadPlan: !!fleetPlan, planSpec: fleetPlanSpec,
     fpNetRate: document.getElementById("fpNetRate").value,
   };
 }
@@ -776,7 +776,7 @@ async function openProject(id){
         (rebuild ? " Recalculating your plans and scenarios now…" : " Anything applied is in the feed below, or just ask me."));
       await geocodeAll();
       if(rebuild){
-        if(d.hadPlan) await runFleetPlan();
+        if(d.hadPlan) await runFleetPlan(d.planSpec || null);
         if(scenarios.length){
           const specs=scenarios.map(s=>({label:s.label, where:s.where, objective:s.objective, pool:s.pool}));
           scenarios=[];
@@ -1260,11 +1260,11 @@ function rowMatches(r, w){
     default: return true;
   }
 }
-let dayFocus = null;   // ISO date — view-only focus on one collection day (doesn't affect planning)
+let dayFocus = null;   // array of ISO dates — view-only focus (a pooled window can span several)
 function visibleRows(forPlanning){
   const dCol = roleCol("date");
   return rows.filter(r=>{
-    if(!forPlanning && dayFocus && (r._dateISO||"no date") !== dayFocus) return false;
+    if(!forPlanning && dayFocus && dayFocus.length && !dayFocus.includes(r._dateISO||"no date")) return false;
     for(const [col,set] of Object.entries(filters.chips)){
       if(!set.size) continue;
       const v = col === "_src" ? r._src : (col === dCol ? (r._dateISO || "no date") : (String(r[col]??"").trim() || "—"));
@@ -1404,7 +1404,7 @@ function drawStats(vis){
   const pending = vis.filter(r=>r._pc && !(r._pc in pcCache)).length;
   const noPc = vis.filter(r=>!r._pc).length;
   let html = `<span><b>${vis.length}</b> of ${rows.length} orders</span>`;
-  if(dayFocus) html += `<span style="color:var(--accent-ink)">showing <b style="color:var(--accent-ink)">${fmtDay(dayFocus)}</b> only
+  if(dayFocus && dayFocus.length) html += `<span style="color:var(--accent-ink)">showing <b style="color:var(--accent-ink)">${fmtDay(dayFocus[0])}${dayFocus.length>1?` + ${dayFocus.length-1} more day${dayFocus.length>2?"s":""}`:""}</b> only
     <button id="dayFocusClear" style="border:0;background:none;color:var(--accent-ink);cursor:pointer;font:inherit;text-decoration:underline;padding:0">show all days</button></span>`;
   if(days) html += `<span><b>${days}</b> collection day${days===1?"":"s"}</span>`;
   if(iCol) html += `<span><b>${fmtN(sum(iCol))}</b> items</span>`;
@@ -1731,7 +1731,9 @@ async function executeOps(ops){
         case "fleet_plan": {
           if(op.objective) fleetObjective = op.objective;
           document.querySelectorAll("#fpObj button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.obj===fleetObjective));
-          await runFleetPlan();
+          const pool = op.value ? Math.max(1, parseInt(op.value)||1) : 1;
+          const spec = (op.where || pool>1) ? { where:op.where||null, pool, objective:op.objective||null, label:op.label||null } : null;
+          await runFleetPlan(spec);
           if(fleetPlan){
             const t = totalsOf(fleetPlan.days);
             resultBits.push(`Fleet plan: our cost ${gbp0(t.cost)} vs network ${gbp0(t.net)} for what we take → saving ${gbp0(t.saving)} across ${t.routes} route${t.routes===1?"":"s"} (${fleetPlan.days.length} day${fleetPlan.days.length===1?"":"s"}). ${t.parcels} parcels taken on, ${t.stay} stay with the network (worth ${gbp0(t.stayWorth)}).`);
@@ -1778,8 +1780,8 @@ async function executeOps(ops){
           break;
         }
         case "focus_day": {
-          dayFocus = op.value && op.value !== "null" ? op.value : null;
-          did.push(dayFocus ? `showing ${fmtDay(dayFocus)} only` : "showing all days");
+          dayFocus = op.value && op.value !== "null" ? [op.value] : null;
+          did.push(dayFocus ? `showing ${fmtDay(dayFocus[0])} only` : "showing all days");
           break;
         }
         case "compute": {
@@ -2295,7 +2297,7 @@ function updateChargeNote(){
   else { note.textContent="no charge column in the sheet — flat rate used"; document.getElementById("fpNetRate").disabled=false; }
 }
 function clearFleetPlan(){
-  fleetPlan=null; fleetLayer.clearLayers();
+  fleetPlan=null; fleetPlanSpec=null; fleetLayer.clearLayers();
   document.getElementById("fpOut").innerHTML="";
   document.getElementById("fpClear").hidden=true;
   document.getElementById("fpCsv").hidden=true;
@@ -2337,14 +2339,19 @@ async function resolveStart(){
 async function computePlanDays(rowsList, p, objective, start, statusFn, poolDays){
   const wCol=roleCol("weight");
   const byDay=new Map();
+  const membersOf={};   // window key -> the real ISO dates inside it
   if(poolDays && poolDays>1){
     // pool consecutive collection days into lead-time windows: day 1+2 run together, 3+4, ...
     const uniq=[...new Set(rowsList.map(r=>r._dateISO||"no date"))].sort();
-    const winOf={}; uniq.forEach((d,i)=>{ const w=Math.floor(i/poolDays);
-      winOf[d]=uniq[w*poolDays]+(poolDays>1&&uniq[Math.min(w*poolDays+poolDays-1,uniq.length-1)]!==uniq[w*poolDays]?" +":""); });
+    const winOf={};
+    uniq.forEach((d,i)=>{
+      const key=uniq[Math.floor(i/poolDays)*poolDays];
+      winOf[d]=key;
+      (membersOf[key]=membersOf[key]||[]).push(d);
+    });
     for(const r of rowsList){ const d=winOf[r._dateISO||"no date"]; if(!byDay.has(d)) byDay.set(d,[]); byDay.get(d).push(r); }
   } else {
-    for(const r of rowsList){ const d=r._dateISO||"no date"; if(!byDay.has(d)) byDay.set(d,[]); byDay.get(d).push(r); }
+    for(const r of rowsList){ const d=r._dateISO||"no date"; if(!byDay.has(d)) byDay.set(d,[]); byDay.get(d).push(r); membersOf[d]=[d]; }
   }
   const days=[...byDay.keys()].sort();
   const out=[];
@@ -2365,7 +2372,7 @@ async function computePlanDays(rowsList, p, objective, start, statusFn, poolDays
     drops.forEach((d,i)=>{ d.idx=i+1; d.name=[...d.names][0]||d.postcode; delete d.names; });
     const M=buildMatrix([start, ...drops.map(d=>d.c)]);
     const sol=buildFleetRoutes(drops,M.dist,M.time,p,objective);
-    out.push({day:days[di], routes:sol.routes, netPile:sol.netPile, Dd:M.dist, Dt:M.time, drops});
+    out.push({day:days[di], members:membersOf[days[di]]||[days[di]], routes:sol.routes, netPile:sol.netPile, Dd:M.dist, Dt:M.time, drops});
   }
   return out;
 }
@@ -2378,21 +2385,29 @@ function totalsOf(days){
   t.saving=t.net-t.cost;
   return t;
 }
-document.getElementById("fpRun").addEventListener("click", runFleetPlan);
-async function runFleetPlan(){
+let fleetPlanSpec = null;   // {where, pool, objective, label} — a plan promoted from a scenario / subset ask
+document.getElementById("fpRun").addEventListener("click", ()=>runFleetPlan(null));
+async function runFleetPlan(spec){
+  if(spec !== undefined) fleetPlanSpec = spec;   // undefined = re-run with the current spec
   const status=document.getElementById("fpStatus");
   document.getElementById("resultsPanel").hidden=false;
   const p=fleetParams();
   if(!p.vehicles.length){ status.textContent="Every vehicle is unticked in the rates panel — enable at least one."; return; }
   const rs=await resolveStart();
   if(rs.error){ status.textContent=rs.error; return; }
-  const vis=visibleRows(true).filter(r=>r._ll);
-  if(!vis.length){ status.textContent="No located orders are visible — widen the filters."; return; }
+  const vis = (fleetPlanSpec && fleetPlanSpec.where)
+    ? rows.filter(r=>r._ll && rowMatches(r, fleetPlanSpec.where))
+    : visibleRows(true).filter(r=>r._ll);
+  if(!vis.length){ status.textContent="No located orders match — widen the filters."; return; }
+  if(fleetPlanSpec && fleetPlanSpec.objective) fleetObjective = fleetPlanSpec.objective;
   fleetLayer.clearLayers(); drawStartPin();
-  const out=await computePlanDays(vis, p, fleetObjective, rs.start, t=>{ status.innerHTML=t; });
+  const out=await computePlanDays(vis, p, fleetObjective, rs.start, t=>{ status.innerHTML=t; }, fleetPlanSpec ? fleetPlanSpec.pool : 1);
   fleetPlan={days:out, start:rs.start, p};
   fleetSelDay=0;
-  status.textContent=`Done — ${out.length} day${out.length===1?"":"s"} planned. Mileage estimated; savings are our route cost vs the network price for the same orders.`;
+  status.textContent=`Done — ${out.length} day${out.length===1?"":"s"} planned`
+    + (fleetPlanSpec && fleetPlanSpec.label ? ` (${fleetPlanSpec.label})` : "")
+    + (fleetPlanSpec && fleetPlanSpec.pool>1 ? ` with ${fleetPlanSpec.pool}-day pooling` : "")
+    + `. Mileage estimated; savings are our route cost vs the network price for the same orders.`;
   document.getElementById("fpClear").hidden=false;
   document.getElementById("fpCsv").hidden=false;
   renderFleetPlan();
@@ -2440,12 +2455,18 @@ function renderScenarios(){
   box.innerHTML=`<div class="netpile-h">Scenario comparison</div>
     <div class="tblwrap" style="max-height:240px"><table><thead><tr>
       <th>Scenario</th><th class="num">Orders</th><th class="num">Days</th><th class="num">Routes</th><th class="num">Parcels taken</th>
-      <th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving</th><th class="num">Stay net.</th>
-    </tr></thead><tbody>${scenarios.map(s=>`<tr>
+      <th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving</th><th class="num">Stay net.</th><th></th>
+    </tr></thead><tbody>${scenarios.map((s,i)=>`<tr>
       <td>${esc(s.label)}</td><td class="num">${s.orders}</td><td class="num">${s.days}</td><td class="num">${s.totals.routes}</td>
       <td class="num">${s.totals.parcels}</td><td class="num">${gbp0(s.totals.cost)}</td><td class="num">${gbp0(s.totals.net)}</td>
-      <td class="num ${s.totals.saving>=0?"pos":"neg"}">${gbp0(s.totals.saving)}</td><td class="num">${s.totals.stay}</td></tr>`).join("")}</tbody></table></div>
-    <div class="scen-note">Scenarios don't change the map or filters — they're side-by-side what-ifs. <button class="linkish" style="display:inline;width:auto;margin:0" onclick="scenarios=[];renderScenarios()">clear</button></div>`;
+      <td class="num ${s.totals.saving>=0?"pos":"neg"}">${gbp0(s.totals.saving)}</td><td class="num">${s.totals.stay}</td>
+      <td><button class="ghost" data-open-scen="${i}" style="padding:3px 10px;font-size:11.5px" title="Load this scenario as the full plan — day-by-day breakdown, routes, map">open</button></td></tr>`).join("")}</tbody></table></div>
+    <div class="scen-note">Scenarios are side-by-side what-ifs — <b>open</b> one to get its full day-by-day breakdown, routes and map view. <button class="linkish" style="display:inline;width:auto;margin:0" onclick="scenarios=[];renderScenarios()">clear</button></div>`;
+  box.querySelectorAll("[data-open-scen]").forEach(b=>b.addEventListener("click", async ()=>{
+    const s=scenarios[+b.dataset.openScen];
+    await runFleetPlan({ where:s.where, pool:s.pool||1, objective:s.objective, label:s.label });
+    document.getElementById("resultsPanel").scrollIntoView({behavior:"smooth"});
+  }));
 }
 
 function planTotals(){
@@ -2469,24 +2490,30 @@ function renderFleetPlan(){
     <div class="kpi ${t.netParcels?"bad":""}"><div class="v">${t.netParcels.toLocaleString()}</div><div class="l">parcels stay with the network (${gbp0(t.netWorth)})</div></div>
   </div>`;
   if(multi){
-    html+=`<div class="tblwrap" style="max-height:230px"><table class="daytbl"><thead><tr>
-      <th>Day</th><th class="num">Orders</th><th class="num">Routes</th><th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving</th><th class="num">Stay net.</th>
+    html+=`<div class="tblwrap" style="max-height:260px"><table class="daytbl"><thead><tr>
+      <th>Day</th><th class="num">Orders</th><th class="num">With us</th><th class="num">Via network</th><th class="num">Routes</th><th class="num">Our cost</th><th class="num">Network £</th><th class="num">Saving</th>
     </tr></thead><tbody>${fleetPlan.days.map((d,i)=>{
       const c=d.routes.reduce((s,r)=>s+r.cost,0), n=d.routes.reduce((s,r)=>s+r.net,0);
+      const take=d.routes.reduce((s,r)=>s+r.parcels,0);
       const stay=d.netPile.reduce((s,x)=>s+(x.parcels||0),0);
-      return `<tr data-day="${i}" class="${i===fleetSelDay?"sel":""}"><td>${fmtDay(d.day)}</td>
-        <td class="num">${d.drops.reduce((s,x)=>s+x.orders,0)}</td><td class="num">${d.routes.length}</td>
+      const dayLabel = (d.members&&d.members.length>1) ? `${fmtDay(d.members[0])} – ${fmtDay(d.members[d.members.length-1])}` : fmtDay(d.day);
+      return `<tr data-day="${i}" class="${i===fleetSelDay?"sel":""}" title="Click to see this day on the map — our routes coloured, network stops grey"><td>${dayLabel}</td>
+        <td class="num">${d.drops.reduce((s,x)=>s+x.orders,0)}</td>
+        <td class="num pos">${take}</td><td class="num" style="color:var(--faint)">${stay}</td>
+        <td class="num">${d.routes.length}</td>
         <td class="num">${gbp0(c)}</td><td class="num">${gbp0(n)}</td>
-        <td class="num ${n-c>=0?"pos":"neg"}">${gbp0(n-c)}</td><td class="num">${stay}</td></tr>`;
-    }).join("")}</tbody></table></div>`;
+        <td class="num ${n-c>=0?"pos":"neg"}">${gbp0(n-c)}</td></tr>`;
+    }).join("")}</tbody></table></div>
+    <div class="scen-note">Click a day to focus the map on it — our routes in colour, stops staying with the network as grey pins. Click again to see every day.</div>`;
   }
   const D=fleetPlan.days[fleetSelDay];
   html+=renderDayDetail(D, multi);
   document.getElementById("fpOut").innerHTML=html;
   document.querySelectorAll(".daytbl tr[data-day]").forEach(tr=>tr.addEventListener("click", ()=>{
     fleetSelDay=+tr.dataset.day;
-    const iso=fleetPlan.days[fleetSelDay].day;
-    dayFocus = (dayFocus===iso) ? null : (iso==="no date"?null:iso);   // click again to unfocus
+    const D2=fleetPlan.days[fleetSelDay];
+    const members=(D2.members||[D2.day]).filter(d=>d!=="no date");
+    dayFocus = (dayFocus && dayFocus.join()===members.join()) ? null : (members.length?members:null);   // click again to unfocus
     renderFleetPlan(); refresh();
   }));
   document.querySelectorAll(".rt-group[data-ri]").forEach(tr=>tr.addEventListener("click", e=>{
@@ -2527,7 +2554,8 @@ function renderDayDetail(D, multi){
     <td class="num">${s.parcels||0}</td><td class="num"></td><td class="num">${Math.round(s.weight||0)}</td>
     <td colspan="3" style="color:var(--faint)">${esc(s.reason||"cheaper via the network")}</td>
     <td class="num">${gbp(s.net||0)}</td><td>${s.bad?"":moveSelect(D,"n",0,si)}</td></tr>`).join("");
-  return `${multi?`<div class="netpile-h">${fmtDay(D.day)}</div>`:""}
+  const dayHdr=(D.members&&D.members.length>1)?`${fmtDay(D.members[0])} – ${fmtDay(D.members[D.members.length-1])}`:fmtDay(D.day);
+  return `${multi?`<div class="netpile-h">${dayHdr}</div>`:""}
     <div class="tblwrap" style="max-height:420px; margin-top:10px"><table><thead><tr>
       <th>Route / stop</th><th class="num">Parcels</th><th class="num">Drops</th><th class="num">Kg</th>
       <th class="num">Miles</th><th class="num">Day</th><th class="num">Our cost</th><th class="num">Network</th><th class="num">Saving / move</th>
