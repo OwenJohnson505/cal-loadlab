@@ -254,6 +254,13 @@ const AREACITY = {E:"London",EC:"London",N:"London",NW:"London",SE:"London",SW:"
     WA:"Warrington",WN:"Warrington",LS:"Leeds",WF:"Leeds",BD:"Leeds",
     G:"Glasgow",ML:"Glasgow",PA:"Glasgow",EH:"Edinburgh",AB:"Aberdeen",
     LA:"Lancaster",FY:"Blackpool",PL:"Plymouth"};
+const CALV = {
+  global: 0.932,
+  cls: {"Small Van":1.025, "SWB":0.976, "LWB":0.936, "XLWB":1.010, "Luton":0.987, "7.5T":1, "18T":1, "Artic":1},
+  dist: [[25,1.043],[100,0.994],[200,0.987],[9999,0.961]],
+  colAdj: {WA:0.942, M:0.946, BB:0.969},
+  delAdj: {M:0.931, SK:0.936, BL:0.912, E:1.145, DA:1.115, EH:1.115, SE:1.107}
+};
 
 /* ==== engine ==== */
 function wmean(entries){ let s=0,w=0; for(const e of entries){ s+=e.v*e.n; w+=e.n; } return s/w; }
@@ -282,6 +289,12 @@ function interp(points, mi, idx){
   const [x0,y0]=pts[pts.length-2],[x1,y1]=pts[pts.length-1];
   return y1+(y1-y0)/(x1-x0)*(mi-x1); }
 function distBucket(mi){ return mi<40?"short":(mi<100?"mid":"long"); }
+function calOverlay(vclass, miles, colA, delA){
+  let o = CALV.global * (CALV.cls[vclass]||1);
+  for(const [lim,f] of CALV.dist){ if(miles < lim){ o *= f; break; } }
+  o *= (CALV.colAdj[colA]||1) * (CALV.delAdj[delA]||1);
+  return o;
+}
 function predict(inp){
   const {vclass, fromA, toA, miles, lead, tod, month, dow} = inp;
   const curve = CURVES[vclass];
@@ -356,15 +369,26 @@ function update(){
   }
   const inp={vclass, fromA, toA, miles, lead:$("selLead").value, tod:$("selTod").value, month:+selMonth.value, dow:+selDow.value};
   const r=predict(inp);
+  const ov = calOverlay(vclass, miles, fromA, toA);
+  const ours = r.total*ov, oursLo = r.lo*ov, oursHi = r.hi*ov;
   const lane = LANES[vclass+"|"+fromA+"|"+toA];
-  $("laneHist").innerHTML = lane ? `<div class="lane"><b>We run this lane.</b> ${lane[3]} × ${vclass} ${fromA} to ${toA} recently, median <b class="mono">£${lane[0]}</b> <span class="mono" style="color:var(--muted)">(${lane[1]} to ${lane[2]})</span>. Recent lane history usually beats the estimate: quote from history, sanity-check below.</div>` : "";
-  $("outCost").textContent=gbp(r.total);
-  $("outRange").textContent=`typical range ${gbp(r.lo)} to ${gbp(r.hi)}`;
-  const confLab={hi:"high confidence",med:"medium confidence",lo:"low confidence",none:"thin data"}[r.conf];
-  $("outConf").textContent=confLab;
-  $("outConf").className="badge "+(r.conf==="hi"?"hi":(r.conf==="med"?"med":"lo"));
+  let primary, pLo, pHi;
+  if(lane){
+    primary = lane[0]; pLo = lane[1]; pHi = lane[2];
+    $("outConf").textContent = `our lane history · ${lane[3]} jobs`;
+    $("outConf").className = "badge hi";
+    $("laneHist").innerHTML = `<div class="lane">Priced from our own recent jobs on this lane (${lane[3]} × ${vclass} ${fromA} to ${toA}). Model check: our network usually pays about <b class="mono">${gbp(ours)}</b> for this profile; the open market charges <b class="mono">${gbp(r.total)}</b> <span class="mono" style="color:var(--muted)">(${gbp(r.lo)} to ${gbp(r.hi)})</span> — that is the line to hold a fresh CX bid to.</div>`;
+  } else {
+    primary = ours; pLo = oursLo; pHi = oursHi;
+    const confLab={hi:"high confidence",med:"medium confidence",lo:"low confidence",none:"thin data"}[r.conf];
+    $("outConf").textContent=confLab;
+    $("outConf").className="badge "+(r.conf==="hi"?"hi":(r.conf==="med"?"med":"lo"));
+    $("laneHist").innerHTML = `<div class="hint" style="margin-top:8px;">Open market rate: <b class="mono">${gbp(r.total)}</b> (${gbp(r.lo)} to ${gbp(r.hi)}) — what a fresh CX bid should settle at. The headline number is what our network usually achieves.</div>`;
+  }
+  $("outCost").textContent=gbp(primary);
+  $("outRange").textContent=`typical range ${gbp(pLo)} to ${gbp(pHi)}`;
   let run=r.base;
-  let html = ledgerRow(`${vclass}, ${miles} mi`, "base", gbp(r.base));
+  let html = ledgerRow(`${vclass}, ${miles} mi`, "market base", gbp(r.base));
   const steps=[
     [r.colF, `Collect from ${fromA}${AREA_NAMES[fromA]?" ("+AREA_NAMES[fromA]+")":""}`],
     [r.delF, `Deliver into ${toA}${AREA_NAMES[toA]?" ("+AREA_NAMES[toA]+")":""}`],
@@ -382,7 +406,9 @@ function update(){
     if(f===null){ html+=ledgerRow(lab, "× 1.00", gbp(run)); continue; }
     run*=f; html+=ledgerRow(lab, fmtM(f), gbp(run));
   }
-  html+=ledgerRow("Expected cost", "", gbp(r.total), "total");
+  html+=ledgerRow("Open market rate", "", gbp(r.total));
+  html+=ledgerRow("Our network vs market", fmtM(ov), gbp(ours));
+  html+=ledgerRow(lane ? "Our price on this lane" : "Our expected cost", "", gbp(primary), "total");
   lg.innerHTML=html;
   const notes=[...pasteNotes];
   if(fromA===toA && miles<10) notes.push("Same-area short job: usually day-rate or handball work. Price as time, not miles.");
@@ -392,7 +418,7 @@ function update(){
   $("availLvl").innerHTML = `Availability: <span class="badge ${av.cls}">${av.lvl}</span>`;
   $("availTxt").textContent = " " + av.txt;
   const margin=+$("marginSlider").value/100;
-  $("outSell").textContent=`sell ${gbp(r.total/(1-margin))}`;
+  $("outSell").textContent=`sell ${gbp(primary/(1-margin))}`;
 }
 
 /* ==== booking-details parser ==== */
