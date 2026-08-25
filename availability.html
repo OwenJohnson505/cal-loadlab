@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Load Lab — Availability &amp; Pricing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💷</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
+  --ink:#182420; --muted:#5D6B66; --faint:#8A968F;
+  --line:#DFE5E2; --line2:#EBEFED;
+  --accent:#D9641E; --accent-ink:#B14E12; --accent-soft:#FBEDE3;
+  --good:#23744F; --good-soft:#E4F1EA; --bad:#B3402E; --bad-soft:#F8E9E5;
+  --warn:#8A6D1B; --warn-soft:#F7EFD8;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131917; --surface:#1B2320; --surface2:#20292624;
+    --ink:#E8EDEA; --muted:#93A19B; --faint:#6C7A74;
+    --line:#2A3531; --line2:#232D29;
+    --accent:#F08A48; --accent-ink:#F49E66; --accent-soft:#3A281C;
+    --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
+    --warn:#D8B457; --warn-soft:#3A311A;
+  }
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{background:var(--bg); color:var(--ink); font-family:"Space Grotesk",system-ui,sans-serif; font-size:15px; line-height:1.45;}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+.appnav{position:fixed; inset:0 auto 0 0; width:176px; z-index:40; background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:18px 12px 14px;}
+.appnav .brand{font-weight:700; font-size:15px; letter-spacing:-0.01em; padding:0 8px 14px;}
+.appnav .brand small{display:block; font-weight:600; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:2px;}
+.appnav a{display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--muted); font-size:13.5px; font-weight:600; padding:9px 10px; border-radius:8px; margin-bottom:2px;}
+.appnav a:hover{color:var(--ink); background:var(--surface2);}
+.appnav a[aria-current="page"]{color:var(--accent-ink); background:var(--accent-soft);}
+.appnav .foot{margin-top:auto; font-size:11px; color:var(--faint); padding:0 8px; overflow-wrap:anywhere;}
+.appnav .foot button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:11px; text-decoration:underline; padding:0;}
+.appnav .foot button:hover{color:var(--ink);}
+.main{padding:clamp(14px,2vw,24px); margin-left:176px;}
+@media (max-width:900px){
+  .appnav{position:static; width:auto; flex-direction:row; align-items:center; gap:4px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--line);}
+  .appnav .brand{padding:0 10px 0 0;} .appnav .brand small{display:none;}
+  .appnav .foot{margin:0 0 0 auto;}
+  .main{margin-left:0;}
+}
+header{margin:0 0 16px;}
+h1{font-size:clamp(20px,2.6vw,27px); font-weight:700; letter-spacing:-0.02em; line-height:1.1;}
+.sub{color:var(--muted); font-size:13px; margin-top:5px; max-width:78ch;}
+.layout{display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start;}
+@media (max-width:1100px){ .layout{grid-template-columns:1fr;} }
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px;}
+.card h2{font-size:14px; font-weight:700; margin-bottom:10px;}
+label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+label:first-of-type{margin-top:0;}
+input[type=text], input[type=number], select, textarea{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+input:focus-visible, select:focus-visible, textarea:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+textarea{font-family:"IBM Plex Mono",monospace; font-size:12px; min-height:150px; resize:vertical;}
+button.primary{font:inherit; font-weight:600; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; width:100%; margin-top:10px;}
+button.primary:hover{background:var(--accent-ink);}
+.vchips{display:flex; flex-wrap:wrap; gap:6px;}
+.vchips button{font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--surface2); color:var(--muted); border-radius:999px; padding:6px 12px;}
+.vchips button[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:#fff;}
+.row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.hint{font-size:12px; color:var(--faint); margin-top:5px;}
+.result-head{display:flex; flex-wrap:wrap; gap:12px; align-items:baseline; justify-content:space-between;}
+.big{font-size:clamp(32px,4.5vw,44px); font-weight:600; letter-spacing:-0.02em;}
+.range{color:var(--muted); font-size:14px;}
+.badge{display:inline-block; font-size:11.5px; font-weight:600; border-radius:999px; padding:3px 10px; vertical-align:middle;}
+.badge.hi{background:var(--good-soft); color:var(--good);}
+.badge.med{background:var(--line2); color:var(--muted);}
+.badge.lo{background:var(--warn-soft); color:var(--warn);}
+.ledger{margin-top:12px; border-top:1px solid var(--line);}
+.lrow{display:grid; grid-template-columns:1fr auto auto; gap:4px 14px; padding:8px 2px; border-bottom:1px solid var(--line2); align-items:baseline;}
+.lrow .lab{font-size:13.5px;}
+.lrow .mult{font-size:13px; color:var(--muted); text-align:right;}
+.lrow .run{font-size:14px; text-align:right; min-width:74px;}
+.lrow.total{border-bottom:0; border-top:2px solid var(--ink); padding-top:10px;}
+.lrow.total .lab{font-weight:700;}
+.lrow.total .run{font-weight:600; font-size:16px; color:var(--accent-ink);}
+.note{background:var(--warn-soft); color:var(--warn); border-radius:8px; padding:9px 11px; font-size:12.5px; margin-top:10px;}
+.lane{background:var(--accent-soft); border-radius:8px; padding:10px 12px; margin-top:12px; font-size:13px;}
+.avail{border:1px solid var(--line); border-radius:8px; padding:11px 12px; margin-top:12px; font-size:13px;}
+.avail .lvl{font-weight:700;}
+.sellbar{display:flex; align-items:center; gap:12px; margin-top:14px; flex-wrap:wrap;}
+.sellbar input[type=range]{flex:1; min-width:120px; accent-color:var(--accent);}
+.sellbar .sellout{font-size:15px; font-weight:600;}
+#authGate{position:fixed; inset:0; z-index:60; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
+.auth-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(360px,100%);}
+.auth-card h1{font-size:24px; margin-bottom:2px;}
+.auth-card .sub{margin-bottom:18px;}
+.auth-card label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+.auth-card input{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+.auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
+.auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
+.linkish{display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;}
+.linkish:hover{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<nav class="appnav">
+  <div class="brand"><small>Cal · Load Lab</small>Toolkit</div>
+  <a href="index.html">📦 Vehicle Selector</a>
+  <a href="routing.html">🗺️ Routing</a>
+  <a href="availability.html" aria-current="page">💷 Availability &amp; Pricing</a>
+  <div class="foot"><span id="whoami"></span> <button id="signOut" hidden>sign out</button></div>
+</nav>
+
+<div id="authGate">
+  <form class="auth-card" id="authForm">
+    <h1>Load Lab</h1>
+    <div class="sub" id="authSub">Cal staff sign-in.</div>
+    <div id="stepEmail">
+      <label for="authEmail">Work email</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button class="primary" type="submit" id="authSubmit">Sign in</button>
+      <button type="button" class="linkish" id="modeSwitch">New here? Request access</button>
+      <button type="button" class="linkish" id="haveCode">Sign in with a code from an admin</button>
+    </div>
+    <div id="stepCode" hidden>
+      <label for="authCode">Enter the code</label>
+      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
+      <button class="primary" type="submit">Sign in</button>
+      <button type="button" class="linkish" id="authBack">Back</button>
+    </div>
+    <div class="auth-err" id="authErr"></div>
+  </form>
+  <div class="auth-card" id="pendingCard" hidden>
+    <h1>Request sent</h1>
+    <div class="sub">Your request is in — an admin needs to approve it before you can use Load Lab.
+      Once approved, just sign in again with your email and password.</div>
+    <button class="primary" id="pendingSignOut" type="button">OK</button>
+  </div>
+</div>
+
+<div class="main">
+<header>
+  <h1>Availability &amp; Pricing</h1>
+  <div class="sub">What the job should cost to buy, and how much bidding to expect. Paste the booking details, or set it by hand.</div>
+</header>
+
+<div class="layout">
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="card">
+      <h2>Paste the booking</h2>
+      <textarea id="pasteBox" placeholder="// =&gt; Booking details&#10;&#10;- Vehicle: Small Van&#10;- Distance: 12 Miles&#10;- Collection Postcode: CW9 7ND, Northwich&#10;- Date: 26 Aug 2026 10:00&#10;..."></textarea>
+      <button class="primary" id="btnRead" type="button">Read the booking</button>
+      <div class="hint" id="parseStatus"></div>
+    </div>
+    <div class="card">
+      <h2>Or set it by hand</h2>
+      <label>Vehicle</label>
+      <div class="vchips" id="vchips"></div>
+      <div class="row2">
+        <div><label for="pcFrom">Collection postcode</label><input type="text" id="pcFrom" autocomplete="off" spellcheck="false"></div>
+        <div><label for="pcTo">Delivery postcode</label><input type="text" id="pcTo" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <div class="row2">
+        <div>
+          <label for="selLead">Lead time</label>
+          <select id="selLead">
+            <option value="asap" selected>ASAP, go now</option>
+            <option value="u2">Booked under 2h ahead</option>
+            <option value="t28">Timed, 2 to 8h ahead</option>
+            <option value="nd">Next day</option>
+            <option value="d13">1 to 3 days ahead</option>
+            <option value="d3">Over 3 days ahead</option>
+          </select>
+        </div>
+        <div>
+          <label for="selTod">Collection time</label>
+          <select id="selTod">
+            <option value="pre8">Before 08:00</option>
+            <option value="m812" selected>08:00 to 12:00</option>
+            <option value="m1214">12:00 to 14:00</option>
+            <option value="m1416">14:00 to 16:00</option>
+            <option value="m1618">16:00 to 18:00</option>
+            <option value="m18">After 18:00</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div><label for="selMonth">Month</label><select id="selMonth"></select></div>
+        <div><label for="selDow">Day</label><select id="selDow"></select></div>
+      </div>
+      <label for="inMiles">Miles</label>
+      <input type="number" id="inMiles" min="1" max="600" step="1" placeholder="auto from postcodes">
+      <div class="hint" id="milesHint"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="result-head">
+      <div><span class="big mono" id="outCost">£—</span> <span class="badge med" id="outConf">waiting</span></div>
+      <div class="range mono" id="outRange"></div>
+    </div>
+    <div id="laneHist"></div>
+    <div class="ledger" id="ledger"></div>
+    <div id="outNotes"></div>
+    <div class="avail" id="availBox" hidden>
+      <span class="lvl" id="availLvl"></span> <span id="availTxt" style="color:var(--muted)"></span>
+    </div>
+    <div class="sellbar">
+      <span style="font-size:12.5px; font-weight:600; color:var(--muted);">Sell at margin</span>
+      <input type="range" id="marginSlider" min="15" max="50" value="33" step="1" aria-label="Target margin percent">
+      <span class="mono" id="marginPct">33%</span>
+      <span class="sellout mono" id="outSell"></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+"use strict";
+/* ==== engine data (generated from Cost-Engine.html — regenerate, don't hand-edit) ==== */
+const CURVES = {
+"Small Van":[[7,30,25,37],[15,30,25,40],[24,35,30,44],[34,40,35,50],[44,48,40,54],[54,50,45,60],[64,60,52,68],[74,66,58,72],[84,75,67,82],[94,80,72,90],[104,84,78,98],[114,92,84,103],[124,98,92,110],[134,105,98,120],[145,114,100,124],[154,120,109,133],[166,125,114,136],[174,114,90,147],[184,140,128,155],[195,145,135,165],[250,175,155,206]],
+"SWB":[[7,37,30,42],[14,39,30,45],[24,42,38,50],[34,48,42,54],[44,52,46,62],[54,58,52,68],[64,66,60,75],[74,75,68,87],[84,82,77,94],[95,92,82,100],[104,98,85,109],[115,108,95,122],[124,118,107,131],[134,122,110,138],[144,132,122,146],[154,142,130,157],[164,152,140,164],[174,159,140,170],[185,168,150,185],[195,175,156,188],[245,197,172,230]],
+"LWB":[[7,42,35,48],[14,41,36,50],[24,48,40,55],[34,55,45,65],[44,61,52,68],[54,70,60,88],[64,78,66,92],[74,84,75,98],[84,93,85,105],[94,98,92,115],[104,118,102,132],[114,122,110,148],[124,131,118,142],[134,146,132,154],[144,142,128,158],[154,158,140,165],[164,168,147,180],[174,146,97,188],[185,188,171,198],[196,186,162,205],[246,230,205,266]],
+"XLWB":[[7,42,36,50],[14,48,40,58],[24,52,45,63],[34,58,50,68],[44,62,56,77],[54,72,62,88],[64,82,72,95],[74,92,80,100],[84,112,95,125],[94,108,98,120],[105,119,105,132],[116,123,112,145],[124,140,125,155],[134,147,134,170],[144,155,140,172],[155,160,147,180],[164,169,145,185],[175,178,162,192],[184,194,175,203],[194,206,187,222],[247,240,205,276]],
+"Luton":[[7,65,50,80],[15,70,60,90],[24,80,70,92],[34,88,72,100],[44,95,82,115],[54,105,92,122],[64,115,100,132],[74,125,112,145],[85,130,112,152],[95,150,135,165],[104,150,138,176],[114,158,145,182],[124,172,160,198],[134,188,168,212],[144,195,178,215],[154,201,185,240],[164,220,205,245],[174,225,199,255],[184,240,205,270],[195,257,230,282],[258,288,240,338]],
+"7.5T":[[7,150,120,182],[15,166,145,180],[25,170,150,198],[34,192,168,220],[44,220,188,245],[54,225,200,258],[64,245,210,284],[74,266,229,309],[84,272,240,302],[94,286,248,330],[104,312,278,362],[115,312,278,350],[124,340,300,390],[134,369,332,418],[144,398,342,435],[154,390,355,425],[164,422,374,482],[174,468,410,510],[184,484,448,514],[194,500,462,560],[252,600,510,675]],
+"18T":[[8,175,150,196],[14,195,178,249],[25,200,175,245],[35,215,190,268],[44,240,210,282],[54,268,232,305],[64,272,245,310],[74,300,270,348],[85,305,282,350],[95,312,290,380],[105,359,313,422],[114,365,325,435],[124,398,350,446],[134,412,362,485],[144,450,402,482],[154,459,408,508],[164,460,408,532],[174,516,459,564],[184,560,424,642],[194,598,510,700],[248,638,550,770]],
+"Artic":[[8,250,225,301],[15,250,225,322],[25,271,232,332],[34,288,248,350],[44,300,262,400],[54,332,294,427],[64,339,304,452],[74,350,304,428],[86,392,345,464],[95,412,369,512],[106,425,359,550],[114,458,394,512],[123,482,412,569],[134,499,425,630],[144,508,450,619],[153,528,464,600],[166,632,553,670],[174,635,556,670],[185,642,570,734],[194,670,590,736],[260,758,636,925]]
+};
+const COL = {AB:[1.08,55],AL:[1.119,87],B:[0.989,5351],BA:[1.151,220],BB:[1.022,4003],BD:[1.032,1983],BH:[1.041,153],BL:[1.014,1395],BN:[1.151,192],BR:[1.085,59],BS:[1.04,4766],CB:[1.091,293],CF:[1.045,557],CH:[1.019,1017],CM:[1.147,310],CO:[1.043,320],CR:[1.123,131],CT:[1.148,64],CV:[1.029,1616],CW:[1.024,444],DA:[1.119,544],DE:[1.052,1711],DH:[0.933,158],DL:[1.022,271],DN:[1.035,1455],DY:[0.994,336],E:[1.082,412],EC:[1.132,65],EH:[0.961,441],EN:[1.079,880],EX:[1.036,347],FY:[1.016,106],G:[0.982,613],GL:[1.05,818],GU:[1.062,415],HD:[1.032,613],HG:[1.083,242],HP:[1.024,304],HU:[1.071,223],HX:[1.025,427],IG:[1.033,449],IP:[1.063,312],IV:[1.244,90],KT:[1.105,144],KY:[1.091,88],L:[1.024,1854],LA:[1.324,86],LE:[1.032,2341],LL:[1.136,459],LN:[1.072,214],LS:[1.023,4563],LU:[1.04,104],M:[1.032,6670],ME:[1.09,537],MK:[1.085,779],ML:[1.045,1013],N:[1.061,767],NE:[1.016,775],NG:[1.102,1808],NN:[1.048,811],NP:[1.111,385],NR:[1.113,215],NW:[1.069,220],OL:[1.016,2155],OX:[1.059,749],PA:[0.981,484],PE:[1.08,561],PL:[1.144,355],PO:[1.095,290],PR:[1.036,1246],RG:[1.034,528],RH:[1.159,341],RM:[1.125,534],S:[1.03,3075],SA:[1.086,190],SE:[1.194,300],SG:[1.088,273],SK:[1.04,3135],SL:[1.152,368],SM:[1.052,55],SN:[1.059,516],SO:[1.086,507],SP:[1.091,107],SS:[1.082,244],ST:[1.028,1305],SW:[1.192,223],SY:[1.137,87],TA:[1.059,109],TF:[1.077,178],TN:[1.112,165],TS:[1.01,185],TW:[1.078,858],UB:[1.05,401],W:[1.221,472],WA:[1.029,7043],WD:[1.115,178],WF:[1.025,1922],WN:[1.013,1528],WR:[1.065,343],WS:[1.011,1374],WV:[1.017,534],YO:[1.07,518]};
+const DEL = {AB:[1.167,312],AL:[1.192,286],B:[0.972,3876],BA:[1.093,565],BB:[0.997,1557],BD:[1.045,1295],BH:[1.089,271],BL:[1.001,1151],BN:[1.141,405],BR:[1.112,173],BS:[1.03,3480],CA:[1.172,639],CB:[1.071,420],CF:[1.037,719],CH:[1.038,1344],CM:[1.049,622],CO:[1.062,213],CR:[1.113,209],CT:[1.14,216],CV:[0.994,1510],CW:[1.012,745],DA:[1.068,760],DD:[1.199,67],DE:[1.002,2360],DH:[1.097,158],DL:[1.056,497],DN:[1.025,1308],DT:[1.126,65],DY:[0.975,551],E:[1.051,1011],EC:[1.218,768],EH:[1.057,1188],EN:[1.016,358],EX:[1.128,369],FK:[1.07,85],FY:[1.004,453],G:[1.2,1282],GL:[1.009,872],GU:[1.047,801],HA:[1.1,269],HD:[1.017,558],HG:[1.067,334],HP:[1.033,534],HR:[1.095,130],HU:[1.035,620],HX:[1.02,298],IG:[1.039,165],IP:[1.074,391],IV:[1.032,454],KA:[1.081,185],KT:[1.031,367],KY:[1.146,121],L:[1.021,1893],LA:[1.119,504],LE:[0.985,1694],LL:[1.11,707],LN:[1.072,372],LS:[1.011,2509],LU:[0.996,652],M:[1.015,4790],ME:[1.04,437],MK:[1.017,875],ML:[1.058,523],N:[1.12,844],NE:[1.062,981],NG:[1.02,1771],NN:[0.998,1374],NP:[1.049,434],NR:[1.058,382],NW:[1.121,598],OL:[0.984,1490],OX:[1.044,1554],PA:[1.037,157],PE:[1.068,682],PH:[1.045,266],PL:[1.191,335],PO:[1.103,430],PR:[0.991,1064],RG:[1.043,1051],RH:[1.107,435],RM:[1.031,606],S:[1.008,2898],SA:[1.131,286],SE:[1.179,802],SG:[1.077,339],SK:[1.011,1774],SL:[1.047,611],SN:[1.049,709],SO:[1.079,508],SP:[1.023,295],SR:[1.065,119],SS:[1.03,289],ST:[1.039,2371],SW:[1.194,1039],SY:[1.054,350],TA:[1.046,326],TF:[1.005,386],TN:[1.095,378],TQ:[1.045,101],TR:[1.189,86],TS:[1.073,484],TW:[1.075,792],UB:[1.028,847],W:[1.233,1408],WA:[1.000,3458],WC:[1.224,358],WD:[1.029,220],WF:[1.003,1100],WN:[0.989,902],WR:[0.988,311],WS:[0.989,556],WV:[0.989,614],YO:[1.046,1020]};
+const LEAD = {asap:{v:1.027,n:24322,l:"ASAP, go now"},u2:{v:1.028,n:17966,l:"Booked under 2h ahead"},t28:{v:1.043,n:6522,l:"Timed, 2 to 8h ahead"},nd:{v:1.049,n:21227,l:"Next day"},d13:{v:1.065,n:10617,l:"1 to 3 days ahead"},d3:{v:1.072,n:12826,l:"Over 3 days ahead"}};
+const TOD = { /* per distance bucket */
+  short:{pre8:{v:1.132,n:2920},m812:{v:1.048,n:17320},m1214:{v:1.029,n:5135},m1416:{v:1.072,n:3472},m1618:{v:1.128,n:1297},m18:{v:1.191,n:303}},
+  mid:{pre8:{v:1.076,n:3091},m812:{v:1.032,n:16465},m1214:{v:1.019,n:4678},m1416:{v:1.023,n:2979},m1618:{v:1.058,n:1378},m18:{v:1.136,n:329}},
+  long:{pre8:{v:1.031,n:5615},m812:{v:1.035,n:16167},m1214:{v:1.035,n:4112},m1416:{v:1.035,n:4473},m1618:{v:1.052,n:2270},m18:{v:1.050,n:1476}}
+};
+const MONTH = {1:{v:0.986,n:11925},2:{v:0.989,n:6016},3:{v:1.013,n:4550},4:{v:1.000,n:7601},5:{v:1.033,n:10100},6:{v:1.030,n:9509},7:{v:1.033,n:4469},8:{v:1.032,n:4340},9:{v:1.021,n:10350},10:{v:1.008,n:8885},11:{v:1.030,n:8570},12:{v:1.060,n:7165}};
+const DOW = {1:{v:0.998,n:17228,l:"Monday"},2:{v:0.987,n:17985,l:"Tuesday"},3:{v:0.990,n:18546,l:"Wednesday"},4:{v:0.988,n:18696,l:"Thursday"},5:{v:1.021,n:18478,l:"Friday"},6:{v:1.098,n:1597,l:"Saturday"},7:{v:1.141,n:950,l:"Sunday"}};
+const LANES = {"Luton|PA|G":[113,113,113,57],"Small Van|E|EC":[40,40,40,55],"Luton|LL|BS":[220,220,310,51],"Luton|SR|EH":[190,190,190,50],"Luton|NG|B":[100,100,100,50],"Luton|B|UB":[150,150,150,45],"Luton|B|W":[300,300,300,44],"7.5T|BB|NG":[350,331,375,38],"Small Van|WA|S":[55,49,60,33],"7.5T|BB|NN":[380,300,400,32],"Small Van|WA|PR":[35,29,40,31],"Small Van|LS|EC":[100,100,100,30],"LWB|BB|OL":[45,45,50,28],"LWB|B|DE":[65,55,70,27],"Luton|SW|NN":[155,155,160,26],"Luton|B|NN":[115,100,120,25],"Small Van|WA|DN":[80,75,95,25],"LWB|BB|M":[45,40,50,25],"Small Van|WA|BL":[30,25,35,25],"Small Van|WA|M":[30,25,30,25],"SWB|BB|OL":[40,35,41,24],"Small Van|WA|CH":[35,30,40,24],"Small Van|LS|S":[40,40,50,23],"Small Van|WN|M":[35,30,40,23],"Luton|LS|NN":[170,166,188,22],"Luton|G|NN":[345,345,345,22],"Luton|NN|W":[240,230,259,22],"Small Van|WA|L":[30,28,39,22],"Small Van|WA|BB":[40,30,45,21],"18T|BB|NG":[380,360,399,21],"Small Van|WA|LS":[50,45,65,20],"XLWB|DL|NE":[78,64,104,20],"Small Van|DN|CH":[100,91,123,20],"Small Van|BB|M":[38,35,41,20],"Small Van|M|LS":[45,40,50,19],"Small Van|NE|ST":[100,97,140,19],"Small Van|M|SK":[30,29,33,19],"Small Van|M|WA":[35,30,35,18],"Small Van|M|S":[50,40,59,18],"LWB|NG|DE":[48,45,50,18],"Small Van|WA|LA":[73,55,89,18],"7.5T|BB|B":[320,278,350,18],"SWB|B|DE":[55,50,65,17],"Small Van|WA|LL":[60,45,85,17],"Artic|M|NG":[500,450,550,17],"LWB|BB|WN":[50,45,50,17],"LWB|M|WA":[45,39,50,16],"LWB|M|CH":[55,50,56,16],"Small Van|BB|WA":[40,40,41,16],"Small Van|WA|CW":[30,26,36,16],"Small Van|S|LS":[40,40,50,16],"Small Van|OL|WV":[70,60,75,16],"Small Van|LE|ST":[60,50,64,15],"SWB|WA|M":[40,35,40,15],"Luton|KT|RG":[90,90,90,15],"18T|M|NN":[495,495,515,15],"LWB|LE|NN":[40,40,50,15],"LWB|WA|OL":[50,50,55,15],"Small Van|CV|MK":[50,45,50,15],"Small Van|CV|B":[40,40,43,15],"Small Van|LS|DN":[50,45,60,14],"Small Van|BD|HD":[30,30,35,14],"LWB|WA|BL":[45,40,48,14],"Small Van|BB|OL":[35,30,39,14],"Small Van|BB|LE":[90,89,99,14],"Small Van|B|ST":[53,41,60,14],"Small Van|CV|ST":[68,56,77,14],"Small Van|WA|NN":[88,80,98,14],"Luton|KT|NN":[155,155,175,14],"SWB|BB|WA":[48,40,54,14],"Small Van|CV|RG":[80,60,85,13],"Luton|N|NN":[155,155,170,13],"LWB|BB|BD":[60,45,65,13],"LWB|M|L":[50,40,50,13],"LWB|M|PR":[50,45,50,13],"18T|BB|M":[200,200,240,13],"Small Van|WA|WN":[25,25,30,13],"SWB|WA|L":[40,35,40,13],"Small Van|M|L":[40,34,46,12],"Small Van|BL|WA":[33,29,35,12],"LWB|BL|M":[40,37,41,12],"Small Van|LS|YO":[55,49,70,12],"XLWB|M|HD":[65,54,70,12],"7.5T|BB|M":[170,170,173,12],"SWB|BB|M":[40,40,45,12],"Small Van|LS|BB":[50,45,60,12],"LWB|LS|HU":[78,74,80,12],"SWB|BB|BS":[160,155,168,12],"SWB|WA|BL":[40,40,45,11],"Small Van|BB|UB":[158,157,158,11],"LWB|M|BB":[50,40,55,11],"Small Van|OL|NG":[80,76,84,11],"Small Van|WA|SK":[35,33,38,11],"Small Van|OL|SK":[25,25,30,11],"Small Van|PR|L":[40,40,48,11],"LWB|BB|LS":[65,57,73,11],"Small Van|ST|LL":[65,62,75,11],"Small Van|WA|B":[65,57,70,11],"LWB|WA|CH":[50,38,53,11],"Small Van|GL|DE":[85,85,85,11],"LWB|M|SK":[40,38,45,11],"LWB|M|OL":[38,35,40,11],"LWB|WN|LA":[80,71,84,10],"LWB|PR|OL":[48,45,50,10],"SWB|M|WA":[45,40,49,10],"XLWB|LS|YO":[100,80,117,10],"Small Van|BL|SK":[30,30,34,10],"Small Van|LS|NE":[80,80,85,10],"Small Van|BB|L":[50,43,54,10],"Small Van|IV|KW":[165,165,165,10],"Small Van|BB|RG":[151,151,151,10],"Luton|NN|M":[160,160,160,10],"Small Van|DL|NE":[50,35,74,10],"Small Van|NG|DE":[40,40,40,10],"Small Van|M|NE":[130,120,142,10],"Small Van|M|OL":[30,30,34,10],"Small Van|DE|ST":[48,41,54,10],"LWB|M|LS":[50,46,59,10],"LWB|S|M":[63,60,69,10],"SWB|WA|DN":[85,80,90,10],"SWB|M|SK":[40,35,45,9],"Small Van|BB|BS":[140,139,140,9],"Small Van|BD|LE":[92,85,95,9],"LWB|WN|BB":[45,45,50,9],"Small Van|CV|WA":[90,82,95,9],"Small Van|DH|NE":[25,25,25,9],"Small Van|L|WA":[30,25,30,9],"Small Van|LS|BD":[35,35,45,9],"Small Van|LS|HU":[60,60,70,9],"Small Van|LS|M":[50,35,50,9],"Small Van|M|B":[85,75,90,9],"Small Van|M|PR":[35,33,45,9],"LWB|M|BL":[40,40,42,9],"Small Van|OL|LU":[130,125,135,9],"Small Van|PE|ST":[100,100,115,9],"Small Van|WA|BD":[50,49,55,9],"Luton|WA|BD":[100,90,115,9],"Luton|SG|CR":[118,100,138,9],"Luton|S|HG":[120,120,125,9],"Small Van|WA|RM":[150,130,152,9],"Artic|M|WA":[295,275,300,9],"Small Van|BB|WF":[50,50,60,9],"Luton|WN|S":[120,119,120,8],"Small Van|WA|LE":[90,82,90,8],"Luton|WA|LA":[150,145,153,8],"Small Van|IP|SO":[150,148,164,8],"Luton|SN|B":[228,187,284,8],"SWB|WA|S":[65,60,71,8],"Small Van|WA|OL":[30,27,45,8],"18T|WA|N":[525,359,650,8],"LWB|WA|M":[40,39,51,8],"LWB|LS|NG":[78,70,83,8],"Small Van|OL|S":[48,45,58,8],"LWB|LS|YO":[80,63,94,8],"Luton|BD|WF":[100,94,111,8],"LWB|WV|LA":[180,165,206,8],"Small Van|M|WF":[50,45,50,8],"Small Van|LS|WF":[30,30,35,8],"7.5T|S|NE":[320,320,343,8],"SWB|BB|UB":[180,180,181,8]};
+const GEO = {AB:[57.15,-2.10],AL:[51.75,-0.34],B:[52.48,-1.90],BA:[51.38,-2.36],BB:[53.75,-2.48],BD:[53.79,-1.75],BH:[50.72,-1.88],BL:[53.58,-2.43],BN:[50.83,-0.14],BR:[51.40,0.02],BS:[51.45,-2.59],BT:[54.60,-5.93],CA:[54.89,-2.94],CB:[52.21,0.12],CF:[51.48,-3.18],CH:[53.19,-2.89],CM:[51.74,0.47],CO:[51.89,0.90],CR:[51.37,-0.10],CT:[51.28,1.08],CV:[52.41,-1.51],CW:[53.10,-2.44],DA:[51.44,0.22],DD:[56.46,-2.97],DE:[52.92,-1.48],DG:[55.07,-3.60],DH:[54.78,-1.58],DL:[54.52,-1.55],DN:[53.52,-1.13],DT:[50.71,-2.44],DY:[52.51,-2.09],E:[51.53,-0.05],EC:[51.52,-0.10],EH:[55.95,-3.19],EN:[51.65,-0.08],EX:[50.72,-3.53],FK:[56.00,-3.78],FY:[53.82,-3.05],G:[55.86,-4.25],GL:[51.86,-2.24],GU:[51.24,-0.57],HA:[51.58,-0.34],HD:[53.65,-1.78],HG:[54.00,-1.54],HP:[51.75,-0.47],HR:[52.06,-2.71],HS:[58.21,-6.39],HU:[53.74,-0.33],HX:[53.72,-1.86],IG:[51.56,0.07],IP:[52.06,1.15],IV:[57.48,-4.22],KA:[55.61,-4.50],KT:[51.41,-0.30],KW:[58.98,-2.96],KY:[56.11,-3.16],L:[53.41,-2.98],LA:[54.05,-2.80],LD:[52.24,-3.38],LE:[52.64,-1.13],LL:[53.15,-3.80],LN:[53.23,-0.54],LS:[53.80,-1.55],LU:[51.88,-0.42],M:[53.48,-2.24],ME:[51.39,0.54],MK:[52.04,-0.76],ML:[55.79,-3.99],N:[51.56,-0.10],NE:[54.98,-1.61],NG:[52.95,-1.15],NN:[52.24,-0.90],NP:[51.59,-3.00],NR:[52.63,1.30],NW:[51.54,-0.18],OL:[53.54,-2.11],OX:[51.75,-1.26],PA:[55.85,-4.42],PE:[52.57,-0.24],PH:[56.40,-3.43],PL:[50.38,-4.14],PO:[50.80,-1.09],PR:[53.76,-2.70],RG:[51.46,-0.97],RH:[51.24,-0.17],RM:[51.58,0.18],S:[53.38,-1.47],SA:[51.62,-3.94],SE:[51.47,-0.06],SG:[51.90,-0.20],SK:[53.41,-2.16],SL:[51.51,-0.59],SM:[51.36,-0.19],SN:[51.56,-1.78],SO:[50.91,-1.40],SP:[51.07,-1.79],SR:[54.91,-1.38],SS:[51.55,0.71],ST:[53.00,-2.18],SW:[51.46,-0.17],SY:[52.71,-2.75],TA:[51.02,-3.10],TD:[55.62,-2.81],TF:[52.68,-2.45],TN:[51.13,0.26],TQ:[50.46,-3.53],TR:[50.26,-5.05],TS:[54.57,-1.23],TW:[51.45,-0.36],UB:[51.54,-0.46],W:[51.51,-0.19],WA:[53.39,-2.60],WC:[51.52,-0.12],WD:[51.66,-0.40],WF:[53.68,-1.50],WN:[53.55,-2.63],WR:[52.19,-2.22],WS:[52.59,-1.98],WV:[52.59,-2.11],YO:[53.96,-1.08],ZE:[60.15,-1.15]};
+const AREA_NAMES = {AB:"Aberdeen",AL:"St Albans",B:"Birmingham",BA:"Bath",BB:"Blackburn",BD:"Bradford",BH:"Bournemouth",BL:"Bolton",BN:"Brighton",BR:"Bromley",BS:"Bristol",BT:"Belfast",CA:"Carlisle",CB:"Cambridge",CF:"Cardiff",CH:"Chester",CM:"Chelmsford",CO:"Colchester",CR:"Croydon",CT:"Canterbury",CV:"Coventry",CW:"Crewe",DA:"Dartford",DD:"Dundee",DE:"Derby",DG:"Dumfries",DH:"Durham",DL:"Darlington",DN:"Doncaster",DT:"Dorchester",DY:"Dudley",E:"London E",EC:"London EC",EH:"Edinburgh",EN:"Enfield",EX:"Exeter",FK:"Falkirk",FY:"Blackpool",G:"Glasgow",GL:"Gloucester",GU:"Guildford",HA:"Harrow",HD:"Huddersfield",HG:"Harrogate",HP:"Hemel Hempstead",HR:"Hereford",HS:"Outer Hebrides",HU:"Hull",HX:"Halifax",IG:"Ilford",IP:"Ipswich",IV:"Inverness",KA:"Kilmarnock",KT:"Kingston",KW:"Kirkwall",KY:"Kirkcaldy",L:"Liverpool",LA:"Lancaster",LD:"Llandrindod Wells",LE:"Leicester",LL:"North Wales",LN:"Lincoln",LS:"Leeds",LU:"Luton",M:"Manchester",ME:"Medway",MK:"Milton Keynes",ML:"Motherwell",N:"London N",NE:"Newcastle",NG:"Nottingham",NN:"Northampton",NP:"Newport",NR:"Norwich",NW:"London NW",OL:"Oldham",OX:"Oxford",PA:"Paisley",PE:"Peterborough",PH:"Perth",PL:"Plymouth",PO:"Portsmouth",PR:"Preston",RG:"Reading",RH:"Redhill / Gatwick",RM:"Romford",S:"Sheffield",SA:"Swansea",SE:"London SE",SG:"Stevenage",SK:"Stockport",SL:"Slough",SM:"Sutton",SN:"Swindon",SO:"Southampton",SP:"Salisbury",SR:"Sunderland",SS:"Southend",ST:"Stoke",SW:"London SW",SY:"Shrewsbury",TA:"Taunton",TD:"Scottish Borders",TF:"Telford",TN:"Tonbridge",TQ:"Torquay",TR:"Truro",TS:"Middlesbrough",TW:"Twickenham / Heathrow",UB:"Uxbridge",W:"London W",WA:"Warrington",WC:"London WC",WD:"Watford",WF:"Wakefield",WN:"Wigan",WR:"Worcester",WS:"Walsall",WV:"Wolverhampton",YO:"York",ZE:"Shetland"};
+const HOMES = {"Birmingham":[637,239],"London":[422,280],"Manchester":[346,189],"Leeds":[198,119],
+          "Warrington":[89,56],"Glasgow":[58,32],"Edinburgh":[18,8],"Aberdeen":[13,11],
+          "Plymouth":[10,8],"Blackpool":[9,7],"Lancaster":[6,6]};
+const AREACITY = {E:"London",EC:"London",N:"London",NW:"London",SE:"London",SW:"London",W:"London",WC:"London",
+    CR:"London",BR:"London",HA:"London",IG:"London",RM:"London",TW:"London",UB:"London",EN:"London",KT:"London",
+    B:"Birmingham",DY:"Birmingham",WS:"Birmingham",WV:"Birmingham",
+    M:"Manchester",SK:"Manchester",OL:"Manchester",BL:"Manchester",
+    WA:"Warrington",WN:"Warrington",LS:"Leeds",WF:"Leeds",BD:"Leeds",
+    G:"Glasgow",ML:"Glasgow",PA:"Glasgow",EH:"Edinburgh",AB:"Aberdeen",
+    LA:"Lancaster",FY:"Blackpool",PL:"Plymouth"};
+
+/* ==== engine ==== */
+function wmean(entries){ let s=0,w=0; for(const e of entries){ s+=e.v*e.n; w+=e.n; } return s/w; }
+const leadMean = wmean(Object.values(LEAD));
+for(const k in LEAD) LEAD[k].norm = LEAD[k].v/leadMean;
+for(const d in TOD){ const m = wmean(Object.values(TOD[d])); for(const k in TOD[d]) TOD[d][k].norm = TOD[d][k].v/m; }
+const monMean = wmean(Object.values(MONTH));
+for(const k in MONTH) MONTH[k].norm = MONTH[k].v/monMean;
+const dowMean = wmean(Object.values(DOW));
+for(const k in DOW) DOW[k].norm = DOW[k].v/dowMean;
+const SHRINK_K = 80;
+function shrink(p){ if(!p) return null; const [v,n]=p; return 1+(v-1)*(n/(n+SHRINK_K)); }
+function areaOf(pc){ const m = String(pc||"").trim().toUpperCase().match(/^[A-Z]{1,2}/); return m?m[0]:null; }
+function haversineMi(a,b){ const R=3958.8, r=x=>x*Math.PI/180;
+  const dLat=r(b[0]-a[0]), dLon=r(b[1]-a[1]);
+  const h=Math.sin(dLat/2)**2 + Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h)); }
+function estMiles(fromA,toA){ if(!GEO[fromA]||!GEO[toA]) return null;
+  return Math.max(5, Math.round(haversineMi(GEO[fromA],GEO[toA])*1.25)); }
+function interp(points, mi, idx){
+  const pts = points.map(p=>[p[0],p[idx]]);
+  for(let i=1;i<pts.length;i++) pts[i][1]=Math.max(pts[i][1],pts[i-1][1]);
+  if(mi<=pts[0][0]) return pts[0][1];
+  for(let i=1;i<pts.length;i++){ if(mi<=pts[i][0]){ const [x0,y0]=pts[i-1],[x1,y1]=pts[i];
+    return y0+(y1-y0)*(mi-x0)/(x1-x0); } }
+  const [x0,y0]=pts[pts.length-2],[x1,y1]=pts[pts.length-1];
+  return y1+(y1-y0)/(x1-x0)*(mi-x1); }
+function distBucket(mi){ return mi<40?"short":(mi<100?"mid":"long"); }
+function predict(inp){
+  const {vclass, fromA, toA, miles, lead, tod, month, dow} = inp;
+  const curve = CURVES[vclass];
+  const base = interp(curve, miles, 1);
+  const colF = shrink(COL[fromA]);
+  const delF = shrink(DEL[toA]);
+  let areaMult = (colF??1)*(delF??1);
+  let capped=false;
+  if(areaMult>1.75){areaMult=1.75;capped=true;}
+  if(areaMult<0.72){areaMult=0.72;capped=true;}
+  const leadF = LEAD[lead].norm;
+  const todF = TOD[distBucket(miles)][tod].norm;
+  const monF = MONTH[month].norm;
+  const dowF = DOW[dow].norm;
+  const total = base*areaMult*leadF*todF*monF*dowF;
+  const lo = total*interp(curve,miles,2)/base;
+  const hi = total*interp(curve,miles,3)/base;
+  const nMin = Math.min(COL[fromA]?COL[fromA][1]:0, DEL[toA]?DEL[toA][1]:0);
+  const conf = (colF===null||delF===null)?"none" : nMin>=800?"hi" : nMin>=200?"med" : "lo";
+  return {base, colF, delF, areaMult, capped, leadF, todF, monF, dowF, total, lo, hi, conf};
+}
+function availability(vclass, colA){
+  const city = AREACITY[colA]; const h = city ? HOMES[city] : null;
+  const dense = h && (h[0]+h[1]) >= 140;
+  const hgv = ["7.5T","18T","Artic"].includes(vclass);
+  const based = h ? ` About ${h[0]+h[1]} carriers are based near ${city}.` : "";
+  if(!hgv && dense) return {lvl:"High", cls:"hi", txt:"Van loads from this area usually draw plenty of bids (4 to 10 is typical, almost none go unquoted)." + based};
+  if(!hgv) return {lvl:"Medium", cls:"med", txt:"Expect a handful of bids (1 to 4). Vans find cover in most areas." + based};
+  if(dense) return {lvl:"Medium", cls:"med", txt:"HGVs draw fewer bids even in the busy areas — 1 to 4 is typical." + based};
+  return {lvl:"Low", cls:"lo", txt:"HGV loads from here often get one or two bids, and roughly half get none. Post early, expect to negotiate — a lone bid usually opens high, and the estimate is your line." + based};
+}
+
+/* ==== UI ==== */
+const $=id=>document.getElementById(id);
+const gbp=x=>"£"+Math.round(x);
+const fmtM=x=>"× "+x.toFixed(2);
+const VCLASSES = Object.keys(CURVES);
+let vclass = "Small Van";
+const vwrap = $("vchips");
+VCLASSES.forEach(v=>{
+  const b=document.createElement("button");
+  b.type="button"; b.textContent=v; b.setAttribute("aria-pressed", v===vclass?"true":"false");
+  b.addEventListener("click",()=>{ vclass=v; vwrap.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x===b?"true":"false")); update(); });
+  vwrap.appendChild(b);
+});
+const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const selMonth=$("selMonth");
+MONTH_NAMES.forEach((m,i)=>{ const o=document.createElement("option"); o.value=i+1; o.textContent=m; selMonth.appendChild(o); });
+selMonth.value = new Date().getMonth()+1;
+const selDow=$("selDow");
+for(const k in DOW){ const o=document.createElement("option"); o.value=k; o.textContent=DOW[k].l; selDow.appendChild(o); }
+selDow.value = ((new Date().getDay()+6)%7)+1;
+["pcFrom","pcTo","inMiles"].forEach(id=>$(id).addEventListener("input",update));
+["selLead","selTod","selMonth","selDow"].forEach(id=>$(id).addEventListener("change",update));
+$("marginSlider").addEventListener("input",()=>{ $("marginPct").textContent=$("marginSlider").value+"%"; update(); });
+
+let pasteNotes = [];
+function ledgerRow(lab, mult, run, cls){
+  return `<div class="lrow ${cls||""}"><span class="lab">${lab}</span><span class="mult mono">${mult}</span><span class="run mono">${run}</span></div>`;
+}
+function update(){
+  const fromA=areaOf($("pcFrom").value), toA=areaOf($("pcTo").value);
+  const est = (fromA&&toA)?estMiles(fromA,toA):null;
+  const manual = parseFloat($("inMiles").value);
+  const miles = (manual&&manual>0)?manual:est;
+  $("milesHint").textContent = est?`Estimated ${est} mi if left blank.`:"";
+  const lg=$("ledger");
+  if(!fromA||!toA||!miles){
+    $("outCost").textContent="£—"; $("outRange").textContent=""; $("outConf").textContent="waiting";
+    $("outConf").className="badge med"; lg.innerHTML=""; $("laneHist").innerHTML="";
+    $("outNotes").innerHTML=""; $("outSell").textContent=""; $("availBox").hidden=true; return;
+  }
+  const inp={vclass, fromA, toA, miles, lead:$("selLead").value, tod:$("selTod").value, month:+selMonth.value, dow:+selDow.value};
+  const r=predict(inp);
+  const lane = LANES[vclass+"|"+fromA+"|"+toA];
+  $("laneHist").innerHTML = lane ? `<div class="lane"><b>We run this lane.</b> ${lane[3]} × ${vclass} ${fromA} to ${toA} recently, median <b class="mono">£${lane[0]}</b> <span class="mono" style="color:var(--muted)">(${lane[1]} to ${lane[2]})</span>. Recent lane history usually beats the estimate: quote from history, sanity-check below.</div>` : "";
+  $("outCost").textContent=gbp(r.total);
+  $("outRange").textContent=`typical range ${gbp(r.lo)} to ${gbp(r.hi)}`;
+  const confLab={hi:"high confidence",med:"medium confidence",lo:"low confidence",none:"thin data"}[r.conf];
+  $("outConf").textContent=confLab;
+  $("outConf").className="badge "+(r.conf==="hi"?"hi":(r.conf==="med"?"med":"lo"));
+  let run=r.base;
+  let html = ledgerRow(`${vclass}, ${miles} mi`, "base", gbp(r.base));
+  const steps=[
+    [r.colF, `Collect from ${fromA}${AREA_NAMES[fromA]?" ("+AREA_NAMES[fromA]+")":""}`],
+    [r.delF, `Deliver into ${toA}${AREA_NAMES[toA]?" ("+AREA_NAMES[toA]+")":""}`],
+    [r.leadF, LEAD[inp.lead].l],
+    [r.todF, $("selTod").selectedOptions[0].textContent+" collection"],
+    [r.monF, MONTH_NAMES[inp.month-1]],
+    [r.dowF, DOW[inp.dow].l],
+  ];
+  let dispSteps = steps.map(s=>s.slice());
+  if(r.capped && r.colF!==null && r.delF!==null){
+    const rawArea=r.colF*r.delF, adj=Math.sqrt(r.areaMult/rawArea);
+    dispSteps[0][0]=r.colF*adj; dispSteps[1][0]=r.delF*adj;
+  }
+  for(const [f,lab] of dispSteps){
+    if(f===null){ html+=ledgerRow(lab, "× 1.00", gbp(run)); continue; }
+    run*=f; html+=ledgerRow(lab, fmtM(f), gbp(run));
+  }
+  html+=ledgerRow("Expected cost", "", gbp(r.total), "total");
+  lg.innerHTML=html;
+  const notes=[...pasteNotes];
+  if(fromA===toA && miles<10) notes.push("Same-area short job: usually day-rate or handball work. Price as time, not miles.");
+  $("outNotes").innerHTML=notes.map(n=>`<div class="note">${n}</div>`).join("");
+  const av = availability(vclass, fromA);
+  $("availBox").hidden = false;
+  $("availLvl").innerHTML = `Availability: <span class="badge ${av.cls}">${av.lvl}</span>`;
+  $("availTxt").textContent = " " + av.txt;
+  const margin=+$("marginSlider").value/100;
+  $("outSell").textContent=`sell ${gbp(r.total/(1-margin))}`;
+}
+
+/* ==== booking-details parser ==== */
+const VEH_MAP = [
+  [/artic|13\.6|44t/i, "Artic"], [/18\s*t/i, "18T"], [/7\.5/i, "7.5T"], [/luton/i, "Luton"],
+  [/xlwb|extra\s*long/i, "XLWB"], [/lwb|long\s*wheel/i, "LWB"], [/swb|short\s*wheel|mwb|medium/i, "SWB"],
+  [/small/i, "Small Van"],
+];
+const MONTHS3 = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseDT(s){
+  const m = String(s||"").trim().match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if(!m) return null;
+  const mo = MONTHS3[m[2].toLowerCase()];
+  if(mo===undefined) return null;
+  return new Date(+m[3], mo, +m[1], +m[4], +m[5]);
+}
+function readBooking(){
+  const t = $("pasteBox").value;
+  pasteNotes = [];
+  const status = $("parseStatus");
+  if(!t.trim()){ status.textContent = "Nothing pasted yet."; return; }
+  const lines = t.split(/\n/);
+  const stops = [];
+  let bookedOn = null, veh = null, dist = null;
+  let last = null;
+  for(const ln of lines){
+    let m;
+    if((m = ln.match(/-\s*Booked On:\s*(.+)/i))) bookedOn = parseDT(m[1]);
+    else if((m = ln.match(/-\s*Vehicle:\s*(.+)/i))) veh = m[1].trim();
+    else if((m = ln.match(/-\s*Distance:\s*([\d.]+)/i))) dist = parseFloat(m[1]);
+    else if((m = ln.match(/-\s*(Collection|Delivery) Postcode:\s*(.+)/i))){
+      last = {kind: m[1].toLowerCase(), pc: m[2].split(",")[0].trim(), date: null};
+      stops.push(last);
+    }
+    else if((m = ln.match(/-\s*Date:\s*(.+)/i)) && last && !last.date) last.date = parseDT(m[1]);
+  }
+  const cols = stops.filter(s=>s.kind==="collection"), dels = stops.filter(s=>s.kind==="delivery");
+  if(!cols.length || !dels.length){ status.textContent = "Couldn't find collection and delivery postcodes — check the paste."; return; }
+  if(veh){
+    for(const [re, vc] of VEH_MAP){ if(re.test(veh)){ vclass = vc; break; } }
+    vwrap.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x.textContent===vclass?"true":"false"));
+  }
+  $("pcFrom").value = cols[0].pc;
+  $("pcTo").value = dels[dels.length-1].pc;
+  $("inMiles").value = dist || "";
+  const cd = cols[0].date;
+  if(cd){
+    selMonth.value = cd.getMonth()+1;
+    selDow.value = ((cd.getDay()+6)%7)+1;
+    const hr = cd.getHours();
+    $("selTod").value = hr<8?"pre8":hr<12?"m812":hr<14?"m1214":hr<16?"m1416":hr<18?"m1618":"m18";
+    if(bookedOn){
+      const lh = (cd - bookedOn)/36e5;
+      $("selLead").value = lh<=0.25?"asap":lh<=2?"u2":lh<=8?"t28":lh<=24?"nd":lh<=72?"d13":"d3";
+    }
+  }
+  const extra = (cols.length-1)+(dels.length-1);
+  if(extra>0) pasteNotes.push(`Multi-stop booking (${cols.length} collection${cols.length>1?"s":""}, ${dels.length} deliver${dels.length>1?"ies":"y"}): priced first collection to last delivery as one leg. Price the other ${extra} stop${extra>1?"s":""} on top.`);
+  status.textContent = `Read: ${vclass}, ${cols[0].pc} → ${dels[dels.length-1].pc}` + (dist?`, ${dist} mi`:"") + (cd?`, ${cd.toLocaleString("en-GB",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"");
+  update();
+}
+$("btnRead").addEventListener("click", readBooking);
+update();
+
+/* ==== auth (shared Load Lab gate) ==== */
+const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
+const SB_KEY = "sb_publishable_opNVNmCxE0yM2vYUkHmOhw_dzOxDQw5";
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+let sbSession = null;
+function showGate(mode){
+  $("authGate").style.display = mode ? "flex" : "none";
+  $("authForm").hidden = mode !== "login";
+  $("pendingCard").hidden = mode !== "pending";
+  if(mode === "login") setAuthMode("signin");
+}
+async function setSession(s){
+  sbSession = s;
+  $("whoami").textContent = s ? s.user.email : "";
+  $("signOut").hidden = !s;
+  if(!s){ showGate("login"); return; }
+  const { data: prof } = await sb.from("loadlab_profiles").select("approved").eq("user_id", s.user.id).maybeSingle();
+  if(!prof){ await sb.from("loadlab_profiles").insert({ user_id: s.user.id, email: s.user.email }); showGate("pending"); return; }
+  if(!prof.approved){ showGate("pending"); return; }
+  showGate(null);
+}
+sb.auth.getSession().then(({data:{session}})=>setSession(session));
+sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+let pendingEmail = null;
+let authMode = "signin";
+function setAuthMode(mode){
+  authMode = mode;
+  const req = authMode === "request";
+  $("authSubmit").textContent = req ? "Request access" : "Sign in";
+  $("modeSwitch").textContent = req ? "Already have access? Sign in" : "New here? Request access";
+  $("authSub").textContent = req ? "Choose a password — an admin approves your access after." : "Cal staff sign-in.";
+  $("authPass").autocomplete = req ? "new-password" : "current-password";
+  $("authErr").textContent = "";
+}
+$("modeSwitch").addEventListener("click", ()=> setAuthMode(authMode === "signin" ? "request" : "signin"));
+$("authForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = $("authErr");
+  err.textContent = "";
+  const onCodeStep = !$("stepCode").hidden;
+  if(!onCodeStep){
+    const email = $("authEmail").value.trim().toLowerCase();
+    const password = $("authPass").value;
+    if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
+    if(password.length < 6){ err.textContent = "Password needs at least 6 characters."; return; }
+    if(authMode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) err.textContent = "Wrong email or password. New here? Use Request access. Forgotten it? Ask an admin for a sign-in code.";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error){
+        err.textContent = /registered|exists/i.test(error.message) ? "That email already has an account — sign in instead." : "Couldn't create the account — try again.";
+      } else if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0){
+        err.textContent = "That email already has an account — sign in instead.";
+      }
+    }
+  } else {
+    const token = $("authCode").value.trim();
+    if(!token){ err.textContent = "Enter the code."; return; }
+    let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
+    if(res.error) err.textContent = "That code didn't work — check it, or ask for a new one.";
+  }
+});
+$("haveCode").addEventListener("click", ()=>{
+  const email = $("authEmail").value.trim().toLowerCase();
+  const err = $("authErr");
+  if(!/@cal\.delivery$/.test(email)){ err.textContent = "Type your @cal.delivery email first, then click again."; return; }
+  err.textContent = "";
+  pendingEmail = email;
+  $("stepEmail").hidden = true;
+  $("stepCode").hidden = false;
+  $("authCode").focus();
+});
+$("authBack").addEventListener("click", ()=>{ $("stepCode").hidden = true; $("stepEmail").hidden = false; });
+$("signOut").addEventListener("click", ()=> sb.auth.signOut());
+$("pendingSignOut").addEventListener("click", ()=> sb.auth.signOut());
+</script>
+</body>
+</html>
