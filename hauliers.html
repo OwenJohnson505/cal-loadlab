@@ -33,6 +33,7 @@ small{color:var(--sub)}
 <label>How far will you travel?</label><input type="text" name="coverage" placeholder="e.g. 100 miles from base / nationwide">
 <label>Email for loads *</label><input type="email" name="email" required>
 <label>Mobile</label><input type="tel" name="phone">
+<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:18px"><input type="checkbox" name="insurance" required style="margin-top:4px"><span>I hold (or can obtain) <b>Goods in Transit</b>, <b>hire &amp; reward motor</b> and <b>public liability</b> insurance, and my vehicle is clean and presentable. <small>Onboarding is a quick document check.</small></span></label>
 <button type="submit">Send to Cal</button>
 <p><small>We'll only use these details to offer you work. One email tells us to delete them.</small></p>
 </form>
@@ -44,7 +45,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   const fd = new FormData(e.target);
   const body = {
     company: fd.get('company'), postcode: fd.get('postcode'),
-    vehicles: fd.getAll('v'), coverage: fd.get('coverage'),
+    vehicles: fd.getAll('v'), coverage: fd.get('coverage'), insurance: !!fd.get('insurance'),
     email: fd.get('email'), phone: fd.get('phone')
   };
   const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Sending...';
