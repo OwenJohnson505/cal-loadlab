@@ -33,7 +33,15 @@ small{color:var(--sub)}
 <label>How far will you travel?</label><input type="text" name="coverage" placeholder="e.g. 100 miles from base / nationwide">
 <label>Email for loads *</label><input type="email" name="email" required>
 <label>Mobile</label><input type="tel" name="phone">
-<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:18px"><input type="checkbox" name="insurance" required style="margin-top:4px"><span>I hold (or can obtain) <b>Goods in Transit</b>, <b>hire &amp; reward motor</b> and <b>public liability</b> insurance, and my vehicle is clean and presentable. <small>Onboarding is a quick document check.</small></span></label>
+<label>Reference from your letter (or your O-licence number)</label><input type="text" name="licence" placeholder="e.g. OC1234567" style="max-width:240px">
+<label style="margin-top:18px">Insurance &amp; onboarding *</label>
+<div class="veh" style="flex-direction:column;align-items:stretch">
+<label><input type="checkbox" name="ins_git" required>Goods in Transit insurance — I hold this or can obtain it</label>
+<label><input type="checkbox" name="ins_motor" required>Motor insurance covering hire &amp; reward</label>
+<label><input type="checkbox" name="ins_pl" required>Public liability insurance</label>
+<label><input type="checkbox" name="clean_vehicle" required>My vehicle is clean and presentable</label>
+</div>
+<p><small>Onboarding is a quick document check — we'll ask for certificates by email before your first load.</small></p>
 <button type="submit">Send to Cal</button>
 <p><small>We'll only use these details to offer you work. One email tells us to delete them.</small></p>
 </form>
@@ -45,7 +53,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   const fd = new FormData(e.target);
   const body = {
     company: fd.get('company'), postcode: fd.get('postcode'),
-    vehicles: fd.getAll('v'), coverage: fd.get('coverage'), insurance: !!fd.get('insurance'),
+    vehicles: fd.getAll('v'), coverage: fd.get('coverage'),
+    licence: fd.get('licence'),
+    ins_git: !!fd.get('ins_git'), ins_motor: !!fd.get('ins_motor'), ins_pl: !!fd.get('ins_pl'), clean_vehicle: !!fd.get('clean_vehicle'),
     email: fd.get('email'), phone: fd.get('phone')
   };
   const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Sending...';
