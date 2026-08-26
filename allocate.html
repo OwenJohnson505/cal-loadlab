@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Load Lab — Driver or CX?</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚚</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
+  --ink:#182420; --muted:#5D6B66; --faint:#8A968F;
+  --line:#DFE5E2; --line2:#EBEFED;
+  --accent:#D9641E; --accent-ink:#B14E12; --accent-soft:#FBEDE3;
+  --good:#23744F; --good-soft:#E4F1EA; --bad:#B3402E; --bad-soft:#F8E9E5;
+  --warn:#8A6D1B; --warn-soft:#F7EFD8;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131917; --surface:#1B2320; --surface2:#20292624;
+    --ink:#E8EDEA; --muted:#93A19B; --faint:#6C7A74;
+    --line:#2A3531; --line2:#232D29;
+    --accent:#F08A48; --accent-ink:#F49E66; --accent-soft:#3A281C;
+    --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
+    --warn:#D8B457; --warn-soft:#3A311A;
+  }
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{background:var(--bg); color:var(--ink); font-family:"Space Grotesk",system-ui,sans-serif; font-size:15px; line-height:1.45;}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+.appnav{position:fixed; inset:0 auto 0 0; width:176px; z-index:40; background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:18px 12px 14px;}
+.appnav .brand{font-weight:700; font-size:15px; letter-spacing:-0.01em; padding:0 8px 14px;}
+.appnav .brand small{display:block; font-weight:600; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:2px;}
+.appnav a{display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--muted); font-size:13.5px; font-weight:600; padding:9px 10px; border-radius:8px; margin-bottom:2px;}
+.appnav a:hover{color:var(--ink); background:var(--surface2);}
+.appnav a[aria-current="page"]{color:var(--accent-ink); background:var(--accent-soft);}
+.appnav .foot{margin-top:auto; font-size:11px; color:var(--faint); padding:0 8px; overflow-wrap:anywhere;}
+.appnav .foot button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:11px; text-decoration:underline; padding:0;}
+.appnav .foot button:hover{color:var(--ink);}
+.main{padding:clamp(14px,2vw,24px); margin-left:176px; max-width:920px;}
+@media (max-width:900px){
+  .appnav{position:static; width:auto; flex-direction:row; align-items:center; gap:4px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--line);}
+  .appnav .brand{padding:0 10px 0 0;} .appnav .brand small{display:none;}
+  .appnav .foot{margin:0 0 0 auto;}
+  .main{margin-left:0;}
+}
+header{margin:0 0 16px;}
+h1{font-size:clamp(20px,2.6vw,27px); font-weight:700; letter-spacing:-0.02em; line-height:1.1;}
+.sub{color:var(--muted); font-size:13px; margin-top:5px; max-width:78ch;}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px;}
+.card h2{font-size:14px; font-weight:700; margin-bottom:10px;}
+label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+input[type=text], input[type=number]{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+.row3{display:grid; grid-template-columns:1fr 1fr 130px; gap:10px; align-items:end;}
+@media (max-width:640px){ .row3{grid-template-columns:1fr 1fr;} }
+.row3 label{margin-top:0;}
+.hint{font-size:12px; color:var(--faint); margin-top:8px;}
+.lanehead{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:baseline; margin:18px 0 6px;}
+.lanehead .lane{font-size:clamp(19px,2.4vw,24px); font-weight:700; letter-spacing:-0.01em;}
+.lanehead .mi{color:var(--muted); font-size:13.5px;}
+.badge{display:inline-block; font-size:11.5px; font-weight:600; border-radius:999px; padding:3px 10px; vertical-align:middle; white-space:nowrap;}
+.badge.own{background:var(--good-soft); color:var(--good);}
+.badge.cx{background:var(--bad-soft); color:var(--bad);}
+.badge.even{background:var(--line2); color:var(--muted);}
+.vtable{width:100%; border-collapse:collapse; margin-top:6px;}
+.vtable th{font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--faint); text-align:left; padding:8px 8px 6px; border-bottom:1px solid var(--line);}
+.vtable th.num, .vtable td.num{text-align:right;}
+.vtable td{padding:10px 8px; border-bottom:1px solid var(--line2); font-size:14px;}
+.vtable tr:last-child td{border-bottom:0;}
+.vtable td.veh{font-weight:600;}
+.vtable td.sav{font-size:12.5px; color:var(--muted); white-space:nowrap;}
+.summary{background:var(--accent-soft); border-radius:8px; padding:11px 13px; font-size:13.5px; margin-top:12px;}
+.note{background:var(--warn-soft); color:var(--warn); border-radius:8px; padding:9px 11px; font-size:12.5px; margin-top:10px;}
+.err{color:var(--bad); font-size:13px; margin-top:10px; min-height:18px;}
+.foot-note{font-size:12px; color:var(--faint); margin-top:14px; max-width:78ch;}
+#authGate{position:fixed; inset:0; z-index:60; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
+.auth-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(360px,100%);}
+.auth-card h1{font-size:24px; margin-bottom:2px;}
+.auth-card .sub{margin-bottom:18px;}
+.auth-card label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+.auth-card input{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+.auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
+button.primary{font:inherit; font-weight:600; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; cursor:pointer;}
+button.primary:hover{background:var(--accent-ink);}
+.auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
+.linkish{display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;}
+.linkish:hover{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<nav class="appnav">
+  <div class="brand"><small>Cal · Load Lab</small>Toolkit</div>
+  <a href="index.html">📦 Vehicle Selector</a>
+  <a href="routing.html">🗺️ Routing</a>
+  <a href="availability.html">💷 Availability &amp; Pricing</a>
+  <a href="allocate.html" aria-current="page">🚚 Driver or CX?</a>
+  <div class="foot"><span id="whoami"></span> <button id="signOut" hidden>sign out</button></div>
+</nav>
+
+<div id="authGate">
+  <form class="auth-card" id="authForm">
+    <h1>Load Lab</h1>
+    <div class="sub" id="authSub">Cal staff sign-in.</div>
+    <div id="stepEmail">
+      <label for="authEmail">Work email</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button class="primary" type="submit" id="authSubmit">Sign in</button>
+      <button type="button" class="linkish" id="modeSwitch">New here? Request access</button>
+      <button type="button" class="linkish" id="haveCode">Sign in with a code from an admin</button>
+    </div>
+    <div id="stepCode" hidden>
+      <label for="authCode">Enter the code</label>
+      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
+      <button class="primary" type="submit">Sign in</button>
+      <button type="button" class="linkish" id="authBack">Back</button>
+    </div>
+    <div class="auth-err" id="authErr"></div>
+  </form>
+  <div class="auth-card" id="pendingCard" hidden>
+    <h1>Request sent</h1>
+    <div class="sub">Your request is in — an admin needs to approve it before you can use Load Lab.
+      Once approved, just sign in again with your email and password.</div>
+    <button class="primary" id="pendingSignOut" type="button">OK</button>
+  </div>
+</div>
+
+<div class="main">
+<header>
+  <h1>Driver or CX?</h1>
+  <div class="sub">Type the collection and delivery postcodes. Compares the NW driver rate card (per loaded mile, minimum charge) against the engine's expected CX cost for every vehicle, and tells you which usually makes more sense.</div>
+</header>
+
+<div class="card">
+  <div class="row3">
+    <div>
+      <label for="pcFrom">Collection postcode</label>
+      <input id="pcFrom" type="text" placeholder="WA7 1SN" autocapitalize="characters">
+    </div>
+    <div>
+      <label for="pcTo">Delivery postcode</label>
+      <input id="pcTo" type="text" placeholder="M24 2RW" autocapitalize="characters">
+    </div>
+    <div>
+      <label for="inMiles">Miles (optional)</label>
+      <input id="inMiles" type="number" min="1" max="600" placeholder="auto">
+    </div>
+  </div>
+  <div class="hint">Miles are estimated from area centroids (straight line × 1.25) unless you type the real road miles.</div>
+  <div class="err" id="errBox"></div>
+</div>
+
+<div id="results" hidden>
+  <div class="lanehead">
+    <span class="lane" id="laneLabel"></span>
+    <span class="mi mono" id="laneMiles"></span>
+  </div>
+  <div class="card">
+    <table class="vtable">
+      <thead><tr>
+        <th>Vehicle</th><th class="num">Our driver</th><th class="num">CX expected</th><th></th><th>Verdict</th>
+      </tr></thead>
+      <tbody id="vbody"></tbody>
+    </table>
+    <div class="summary" id="summaryLine"></div>
+    <div id="notes"></div>
+  </div>
+  <div class="foot-note">Rate card: Small Van £0.70/mi (min £25) · SWB £0.90 (£30) · LWB £1.00 (£35) · XLWB £1.10 (£37.50) · Luton £1.30 (£65), loaded miles only.
+  CX = the engine's expected third-party cost for this lane (pure CX cost base). Some drivers sit above the card, so treat wins under 10% as a coin toss. Availability still rules: a driver already positioned beats both numbers.</div>
+</div>
+
+</div>
+
+<script>
+/* ==== engine data (generated from Cost-Engine.html — do not hand-edit) ==== */
+const CURVES = {
+"Small Van":[[5,30,25,38],[15,32,27,40],[25,37,30,45],[35,40,35,50],[45,48,40,55],[55,50,45,60],[65,60,51,69],[75,66,60,73],[85,75,69,83],[95,80,72,92],[105,85,78,98],[115,93,85,103],[125,100,93,113],[135,107,98,120],[145,114,100,127],[155,120,109,136],[165,128,112,143],[175,128,82,146],[185,143,125,155],[195,150,135,167],[250,178,155,208]],
+"SWB":[[5,39,30,45],[15,40,32,45],[25,43,38,50],[35,48,43,55],[45,53,47,63],[55,60,53,70],[65,66,60,75],[75,77,68,87],[85,84,79,97],[95,94,84,100],[105,100,88,112],[115,110,97,125],[125,124,111,136],[135,126,114,142],[145,137,126,149],[155,145,132,160],[165,156,144,167],[175,163,141,173],[185,173,150,190],[195,177,157,192],[243,204,174,240]],
+"LWB":[[5,44,35,50],[15,44,38,51],[25,49,40,59],[35,57,48,69],[45,64,54,72],[55,72,60,92],[65,79,67,97],[75,87,75,99],[85,98,88,108],[95,100,94,120],[105,122,104,137],[115,128,111,164],[125,138,119,148],[135,156,137,162],[145,156,129,163],[155,163,143,168],[165,177,161,188],[175,177,34,194],[185,197,179,207],[195,197,149,209],[252,236,208,283]],
+"XLWB":[[5,44,37,50],[15,50,40,60],[25,51,46,62],[35,59,50,70],[45,64,56,78],[55,73,63,88],[65,81,71,94],[75,93,79,100],[85,119,99,129],[95,119,96,120],[105,119,103,131],[115,121,111,146],[125,140,128,159],[135,146,132,168],[145,151,136,171],[155,160,147,180],[165,169,148,188],[175,176,158,191],[185,188,175,202],[195,202,181,225],[257,244,208,283]],
+"Luton":[[5,66,53,81],[15,70,60,88],[25,80,70,92],[35,89,75,100],[45,97,87,121],[55,108,94,124],[65,116,100,134],[75,127,113,147],[85,130,112,153],[95,152,137,163],[105,152,137,178],[115,167,144,217],[125,174,160,198],[135,191,170,213],[145,196,178,220],[155,201,185,243],[165,225,200,254],[175,228,199,258],[185,244,206,271],[195,257,234,286],[252,295,257,347]],
+"7.5T":[[5,150,120,175],[15,165,144,181],[25,170,150,199],[35,197,171,221],[45,220,192,242],[55,226,200,256],[65,242,205,282],[75,271,230,312],[85,276,244,301],[95,287,248,322],[105,311,278,361],[115,311,277,350],[125,347,300,396],[135,370,333,417],[145,397,345,431],[155,398,363,428],[165,422,376,480],[175,460,405,503],[185,485,449,515],[195,500,462,561],[248,600,514,664]],
+"18T":[[5,180,154,197],[15,191,176,250],[25,200,172,242],[35,216,192,256],[45,244,214,286],[55,276,237,308],[65,276,241,303],[75,300,266,349],[85,302,277,350],[95,306,285,379],[105,357,309,415],[115,357,312,427],[125,397,345,446],[135,405,355,465],[145,450,401,486],[155,463,401,502],[165,463,396,533],[175,508,454,557],[185,516,373,604],[195,576,518,632],[251,638,566,787]],
+"Artic":[[5,241,221,284],[15,241,200,260],[25,251,218,281],[35,274,246,312],[45,293,265,362],[55,338,296,426],[65,345,302,451],[75,350,300,391],[85,392,345,465],[95,392,370,450],[105,400,350,504],[115,453,393,505],[125,472,403,555],[135,486,410,581],[145,496,446,546],[155,528,463,594],[165,634,554,670],[175,634,507,650],[185,634,533,722],[195,635,578,685],[270,779,643,938]]
+};
+const COL = {AB:[1.08,55],AL:[1.119,87],B:[0.981,5119],BA:[1.145,219],BB:[1.016,3035],BD:[1.029,1969],BH:[1.039,151],BL:[1.02,1263],BN:[1.16,187],BR:[1.032,54],BS:[1.039,4723],CB:[1.092,292],CF:[1.04,514],CH:[1.027,777],CM:[1.125,304],CO:[1.203,127],CR:[1.106,127],CT:[1.144,62],CV:[1.03,1572],CW:[1.019,428],DA:[1.097,516],DE:[1.052,1697],DH:[0.908,158],DL:[1.029,269],DN:[1.036,1448],DY:[0.987,319],E:[1.077,408],EC:[1.132,65],EH:[1.071,202],EN:[1.079,880],EX:[1.046,345],FY:[1.016,106],G:[0.984,607],GL:[1.042,814],GU:[1.056,408],HA:[1.116,52],HD:[1.031,613],HG:[1.107,293],HP:[1.024,296],HU:[1.075,223],HX:[1.025,427],IG:[1.033,449],IP:[1.072,311],IV:[1.244,90],KT:[1.09,136],KY:[1.098,79],L:[1.027,1731],LA:[1.248,76],LE:[1.034,2315],LL:[1.163,380],LN:[1.072,214],LS:[1.025,4463],LU:[1.04,104],M:[1.033,5976],ME:[1.093,531],MK:[1.097,773],ML:[1.043,1012],N:[1.062,757],NE:[1.019,772],NG:[1.101,1800],NN:[1.056,780],NP:[1.094,378],NR:[1.118,215],NW:[1.071,219],OL:[1.017,2065],OX:[1.04,725],PA:[0.981,484],PE:[1.078,557],PL:[1.141,327],PO:[1.095,273],PR:[1.041,1173],RG:[1.034,514],RH:[1.162,324],RM:[1.121,530],S:[1.03,3048],SA:[1.082,189],SE:[1.188,289],SG:[1.094,270],SK:[1.041,3102],SL:[1.145,359],SM:[1.052,55],SN:[1.056,506],SO:[1.08,490],SP:[1.086,107],SS:[1.078,242],ST:[1.028,1300],SW:[1.19,218],SY:[1.139,83],TA:[1.059,109],TF:[1.06,176],TN:[1.111,161],TS:[1.012,184],TW:[1.07,835],UB:[1.05,397],W:[1.17,452],WA:[1.033,6131],WD:[1.115,178],WF:[1.024,1918],WN:[1.013,1376],WR:[1.066,341],WS:[1.007,1348],WV:[1.015,531],YO:[1.058,504]};
+const DEL = {AB:[1.317,306],AL:[1.202,269],B:[0.969,3716],BA:[1.089,549],BB:[1.003,1423],BD:[1.043,1264],BH:[1.076,258],BL:[1.001,1056],BN:[1.129,385],BR:[1.084,164],BS:[1.03,3302],CA:[1.169,623],CB:[1.065,404],CF:[1.034,669],CH:[1.045,1274],CM:[1.048,591],CO:[1.057,202],CR:[1.11,200],CT:[1.132,200],CV:[0.994,1431],CW:[1.023,696],DA:[1.044,713],DD:[1.193,67],DE:[1.006,2114],DH:[1.097,158],DL:[1.049,481],DN:[1.023,1273],DT:[1.126,65],DY:[0.967,539],E:[1.054,983],EC:[1.221,748],EH:[1.107,908],EN:[1.015,341],EX:[1.129,360],FK:[1.07,85],FY:[1.002,439],G:[1.127,941],GL:[1.008,838],GU:[1.044,785],HA:[1.082,257],HD:[1.012,536],HG:[1.063,325],HP:[1.023,512],HR:[1.095,130],HU:[1.038,603],HX:[1.018,293],IG:[1.039,165],IP:[1.084,369],IV:[1.147,454],KA:[1.081,185],KT:[1.019,352],KY:[1.146,121],L:[1.018,1773],LA:[1.128,464],LE:[0.986,1631],LL:[1.119,657],LN:[1.073,370],LS:[1.012,2397],LU:[0.994,620],M:[1.015,4461],ME:[1.039,417],MK:[1.018,860],ML:[1.056,513],N:[1.091,809],NE:[1.057,949],NG:[1.018,1682],NN:[0.996,1296],NP:[1.046,412],NR:[1.057,363],NW:[1.123,574],OL:[0.986,1398],OX:[1.043,1498],PA:[1.037,157],PE:[1.064,658],PH:[1.07,266],PL:[1.222,330],PO:[1.101,416],PR:[1.0,990],RG:[1.046,936],RH:[1.103,390],RM:[1.027,583],S:[1.012,2785],SA:[1.14,278],SE:[1.172,771],SG:[1.081,327],SK:[1.014,1703],SL:[1.046,593],SN:[1.049,692],SO:[1.081,491],SP:[1.027,286],SR:[1.065,119],SS:[1.023,281],ST:[1.045,2320],SW:[1.197,997],SY:[1.054,333],TA:[1.046,326],TF:[0.997,379],TN:[1.081,352],TQ:[1.124,101],TR:[1.238,86],TS:[1.077,460],TW:[1.076,770],UB:[1.042,629],W:[1.214,1344],WA:[1.002,3019],WC:[1.22,339],WD:[1.029,211],WF:[1.003,1062],WN:[0.988,828],WR:[0.993,296],WS:[0.979,544],WV:[0.995,594],YO:[1.045,991],KW:[1.6,8],DG:[1.038,18]};
+const GEO = {AB:[57.15,-2.10],AL:[51.75,-0.34],B:[52.48,-1.90],BA:[51.38,-2.36],BB:[53.75,-2.48],BD:[53.79,-1.75],BH:[50.72,-1.88],BL:[53.58,-2.43],BN:[50.83,-0.14],BR:[51.40,0.02],BS:[51.45,-2.59],BT:[54.60,-5.93],CA:[54.89,-2.94],CB:[52.21,0.12],CF:[51.48,-3.18],CH:[53.19,-2.89],CM:[51.74,0.47],CO:[51.89,0.90],CR:[51.37,-0.10],CT:[51.28,1.08],CV:[52.41,-1.51],CW:[53.10,-2.44],DA:[51.44,0.22],DD:[56.46,-2.97],DE:[52.92,-1.48],DG:[55.07,-3.60],DH:[54.78,-1.58],DL:[54.52,-1.55],DN:[53.52,-1.13],DT:[50.71,-2.44],DY:[52.51,-2.09],E:[51.53,-0.05],EC:[51.52,-0.10],EH:[55.95,-3.19],EN:[51.65,-0.08],EX:[50.72,-3.53],FK:[56.00,-3.78],FY:[53.82,-3.05],G:[55.86,-4.25],GL:[51.86,-2.24],GU:[51.24,-0.57],HA:[51.58,-0.34],HD:[53.65,-1.78],HG:[54.00,-1.54],HP:[51.75,-0.47],HR:[52.06,-2.71],HS:[58.21,-6.39],HU:[53.74,-0.33],HX:[53.72,-1.86],IG:[51.56,0.07],IP:[52.06,1.15],IV:[57.48,-4.22],KA:[55.61,-4.50],KT:[51.41,-0.30],KW:[58.98,-2.96],KY:[56.11,-3.16],L:[53.41,-2.98],LA:[54.05,-2.80],LD:[52.24,-3.38],LE:[52.64,-1.13],LL:[53.15,-3.80],LN:[53.23,-0.54],LS:[53.80,-1.55],LU:[51.88,-0.42],M:[53.48,-2.24],ME:[51.39,0.54],MK:[52.04,-0.76],ML:[55.79,-3.99],N:[51.56,-0.10],NE:[54.98,-1.61],NG:[52.95,-1.15],NN:[52.24,-0.90],NP:[51.59,-3.00],NR:[52.63,1.30],NW:[51.54,-0.18],OL:[53.54,-2.11],OX:[51.75,-1.26],PA:[55.85,-4.42],PE:[52.57,-0.24],PH:[56.40,-3.43],PL:[50.38,-4.14],PO:[50.80,-1.09],PR:[53.76,-2.70],RG:[51.46,-0.97],RH:[51.24,-0.17],RM:[51.58,0.18],S:[53.38,-1.47],SA:[51.62,-3.94],SE:[51.47,-0.06],SG:[51.90,-0.20],SK:[53.41,-2.16],SL:[51.51,-0.59],SM:[51.36,-0.19],SN:[51.56,-1.78],SO:[50.91,-1.40],SP:[51.07,-1.79],SR:[54.91,-1.38],SS:[51.55,0.71],ST:[53.00,-2.18],SW:[51.46,-0.17],SY:[52.71,-2.75],TA:[51.02,-3.10],TD:[55.62,-2.81],TF:[52.68,-2.45],TN:[51.13,0.26],TQ:[50.46,-3.53],TR:[50.26,-5.05],TS:[54.57,-1.23],TW:[51.45,-0.36],UB:[51.54,-0.46],W:[51.51,-0.19],WA:[53.39,-2.60],WC:[51.52,-0.12],WD:[51.66,-0.40],WF:[53.68,-1.50],WN:[53.55,-2.63],WR:[52.19,-2.22],WS:[52.59,-1.98],WV:[52.59,-2.11],YO:[53.96,-1.08],ZE:[60.15,-1.15]};
+const AREA_NAMES = {AB:"Aberdeen",AL:"St Albans",B:"Birmingham",BA:"Bath",BB:"Blackburn",BD:"Bradford",BH:"Bournemouth",BL:"Bolton",BN:"Brighton",BR:"Bromley",BS:"Bristol",BT:"Belfast",CA:"Carlisle",CB:"Cambridge",CF:"Cardiff",CH:"Chester",CM:"Chelmsford",CO:"Colchester",CR:"Croydon",CT:"Canterbury",CV:"Coventry",CW:"Crewe",DA:"Dartford",DD:"Dundee",DE:"Derby",DG:"Dumfries",DH:"Durham",DL:"Darlington",DN:"Doncaster",DT:"Dorchester",DY:"Dudley",E:"London E",EC:"London EC",EH:"Edinburgh",EN:"Enfield",EX:"Exeter",FK:"Falkirk",FY:"Blackpool",G:"Glasgow",GL:"Gloucester",GU:"Guildford",HA:"Harrow",HD:"Huddersfield",HG:"Harrogate",HP:"Hemel Hempstead",HR:"Hereford",HS:"Outer Hebrides",HU:"Hull",HX:"Halifax",IG:"Ilford",IP:"Ipswich",IV:"Inverness",KA:"Kilmarnock",KT:"Kingston",KW:"Kirkwall",KY:"Kirkcaldy",L:"Liverpool",LA:"Lancaster",LD:"Llandrindod Wells",LE:"Leicester",LL:"North Wales",LN:"Lincoln",LS:"Leeds",LU:"Luton",M:"Manchester",ME:"Medway",MK:"Milton Keynes",ML:"Motherwell",N:"London N",NE:"Newcastle",NG:"Nottingham",NN:"Northampton",NP:"Newport",NR:"Norwich",NW:"London NW",OL:"Oldham",OX:"Oxford",PA:"Paisley",PE:"Peterborough",PH:"Perth",PL:"Plymouth",PO:"Portsmouth",PR:"Preston",RG:"Reading",RH:"Redhill / Gatwick",RM:"Romford",S:"Sheffield",SA:"Swansea",SE:"London SE",SG:"Stevenage",SK:"Stockport",SL:"Slough",SM:"Sutton",SN:"Swindon",SO:"Southampton",SP:"Salisbury",SR:"Sunderland",SS:"Southend",ST:"Stoke",SW:"London SW",SY:"Shrewsbury",TA:"Taunton",TD:"Scottish Borders",TF:"Telford",TN:"Tonbridge",TQ:"Torquay",TR:"Truro",TS:"Middlesbrough",TW:"Twickenham / Heathrow",UB:"Uxbridge",W:"London W",WA:"Warrington",WC:"London WC",WD:"Watford",WF:"Wakefield",WN:"Wigan",WR:"Worcester",WS:"Walsall",WV:"Wolverhampton",YO:"York",ZE:"Shetland"};
+const CALV = {
+  global: 0.918,
+  cls: {"Small Van":1.022, "SWB":0.982, "LWB":0.949, "XLWB":1.024, "Luton":0.993, "7.5T":1, "18T":1, "Artic":1},
+  dist: [[25,1.028],[100,1.003],[200,0.990],[9999,0.965]],
+  colAdj: {WA:0.947, M:0.956, BB:0.977},
+  delAdj: {M:0.941, SK:0.941, BL:0.923, E:1.151, DA:1.141, EH:1.060, SE:1.097}
+};
+
+const RATES = {
+  "Small Van": [0.70, 25],
+  "SWB":       [0.90, 30],
+  "LWB":       [1.00, 35],
+  "XLWB":      [1.10, 37.5],
+  "Luton":     [1.30, 65],
+};
+const BASE = "WA"; /* NW driver base, Warrington */
+
+const $ = id => document.getElementById(id);
+const gbp = x => "£" + Math.round(x);
+
+function haversineMi(a,b){ const R=3958.8, r=x=>x*Math.PI/180;
+  const h = Math.sin(r(b[0]-a[0])/2)**2 + Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(r(b[1]-a[1])/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h)); }
+function estMiles(fromA,toA){ if(!GEO[fromA]||!GEO[toA]) return null;
+  return Math.max(5, Math.round(haversineMi(GEO[fromA],GEO[toA])*1.25)); }
+function areaOf(pc){ const m = String(pc||"").trim().toUpperCase().match(/^([A-Z]{1,2})\d/); return m ? m[1] : null; }
+
+function interp(points, mi){
+  const pts = points.map(p=>[p[0],p[1]]);
+  for(let i=1;i<pts.length;i++) pts[i][1]=Math.max(pts[i][1],pts[i-1][1]);
+  if(mi<=pts[0][0]) return pts[0][1];
+  for(let i=1;i<pts.length;i++){
+    if(mi<=pts[i][0]){
+      const [x0,y0]=pts[i-1],[x1,y1]=pts[i];
+      return y0+(y1-y0)*(mi-x0)/(x1-x0);
+    }
+  }
+  return pts[pts.length-1][1];
+}
+function calOverlay(vclass, miles, colA, delA){
+  let o = CALV.global * (CALV.cls[vclass]||1);
+  for(const [lim,f] of CALV.dist){ if(miles < lim){ o *= f; break; } }
+  o *= (CALV.colAdj[colA]||1); o *= (CALV.delAdj[delA]||1);
+  return o;
+}
+function cxCost(vclass, miles, colA, delA){
+  const base = interp(CURVES[vclass], miles);
+  const colf = COL[colA] ? COL[colA][0] : 1, delf = DEL[delA] ? DEL[delA][0] : 1;
+  const area = Math.max(0.72, Math.min(1.75, colf*delf));
+  return base * area * calOverlay(vclass, miles, colA, delA);
+}
+function ownCost(vclass, miles){ const [r,mn]=RATES[vclass]; return Math.max(mn, r*miles); }
+
+function areaName(a){ return AREA_NAMES[a] ? `${a} (${AREA_NAMES[a]})` : a; }
+
+function update(){
+  const colA = areaOf($("pcFrom").value), delA = areaOf($("pcTo").value);
+  const err = $("errBox");
+  err.textContent = "";
+  if(!colA || !delA){ $("results").hidden = true; return; }
+  if(!GEO[colA] || !GEO[delA]){
+    err.textContent = "Don't recognise " + (!GEO[colA] ? colA : delA) + " — check the postcode.";
+    $("results").hidden = true; return;
+  }
+  const manual = parseFloat($("inMiles").value);
+  const miles = (manual && manual > 0) ? manual : estMiles(colA, delA);
+  const deadMi = estMiles(BASE, colA);
+  const inPatch = deadMi <= 50, stretch = deadMi > 50 && deadMi <= 85;
+
+  $("laneLabel").textContent = `${areaName(colA)} → ${areaName(delA)}`;
+  $("laneMiles").textContent = `${miles} mi` + (manual ? "" : " est.");
+
+  const rows = [], ownWins = [], cxWins = [];
+  for(const v in RATES){
+    const oc = ownCost(v, miles), cx = cxCost(v, miles, colA, delA);
+    const diff = (cx - oc) / cx;
+    let cls, verdict, sav;
+    if(!inPatch && !stretch){ cls="cx"; verdict="CX"; sav="own driver not based there"; cxWins.push(v); }
+    else if(diff >= 0.03){ cls="own"; verdict="Our driver"; sav=`saves ${gbp(cx-oc)} (${Math.round(diff*100)}%)`; ownWins.push(v); }
+    else if(diff <= -0.03){ cls="cx"; verdict="CX"; sav=`saves ${gbp(oc-cx)} (${Math.round(-diff*100)}%)`; cxWins.push(v); }
+    else { cls="even"; verdict="Either"; sav="within 3%"; }
+    rows.push(`<tr><td class="veh">${v}</td><td class="num mono">${gbp(oc)}</td><td class="num mono">${gbp(cx)}</td><td class="sav">${sav}</td><td><span class="badge ${cls}">${verdict}</span></td></tr>`);
+  }
+  $("vbody").innerHTML = rows.join("");
+
+  let summary;
+  if(!inPatch && !stretch){
+    summary = `Collection is about ${deadMi} miles from the NW base — our drivers aren't positioned for this one. Buy it on CX unless a driver is already down there.`;
+  } else if(ownWins.length === 5) summary = "Our drivers win this lane in every vehicle. Allocate own first, CX as backup.";
+  else if(cxWins.length === 5) summary = "CX wins this lane in every vehicle — the per-mile card can't compete here. Post it.";
+  else if(ownWins.length && cxWins.length) summary = `Split lane: our drivers for ${ownWins.join(", ")} — CX for ${cxWins.join(", ")}.`;
+  else if(ownWins.length) summary = `Our drivers for ${ownWins.join(", ")}; the rest is a coin toss.`;
+  else summary = `CX for ${cxWins.join(", ")}; the rest is a coin toss.`;
+  $("summaryLine").textContent = summary;
+
+  const notes = [];
+  if(stretch) notes.push(`Collection is ~${deadMi} mi from the NW base — a driver can cover it, but the dead leg eats the saving. Lean CX unless someone is already out that way.`);
+  if(miles >= 180 && (inPatch || stretch)) notes.push("Long haul: CX settles at backload economics out here (someone is already heading that way), which is why the per-mile card struggles. If a driver has a confirmed return load, the maths flips back.");
+  if(miles <= 15) notes.push("Short hop: minimum charges rule. Our minimums are well under what CX charges for short work — this is own-driver territory whenever one is free.");
+  $("notes").innerHTML = notes.map(n=>`<div class="note">${n}</div>`).join("");
+
+  $("results").hidden = false;
+}
+for(const id of ["pcFrom","pcTo","inMiles"]) $(id).addEventListener("input", update);
+
+/* ==== auth (shared Load Lab gate) ==== */
+const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
+const SB_KEY = "sb_publishable_opNVNmCxE0yM2vYUkHmOhw_dzOxDQw5";
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+let sbSession = null;
+function showGate(mode){
+  $("authGate").style.display = mode ? "flex" : "none";
+  $("authForm").hidden = mode !== "login";
+  $("pendingCard").hidden = mode !== "pending";
+  if(mode === "login") setAuthMode("signin");
+}
+async function setSession(s){
+  sbSession = s;
+  $("whoami").textContent = s ? s.user.email : "";
+  $("signOut").hidden = !s;
+  if(!s){ showGate("login"); return; }
+  const { data: prof } = await sb.from("loadlab_profiles").select("approved").eq("user_id", s.user.id).maybeSingle();
+  if(!prof){ await sb.from("loadlab_profiles").insert({ user_id: s.user.id, email: s.user.email }); showGate("pending"); return; }
+  if(!prof.approved){ showGate("pending"); return; }
+  showGate(null);
+}
+sb.auth.getSession().then(({data:{session}})=>setSession(session));
+sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+let pendingEmail = null;
+let authMode = "signin";
+function setAuthMode(mode){
+  authMode = mode;
+  const req = authMode === "request";
+  $("authSubmit").textContent = req ? "Request access" : "Sign in";
+  $("modeSwitch").textContent = req ? "Already have access? Sign in" : "New here? Request access";
+  $("authSub").textContent = req ? "Choose a password — an admin approves your access after." : "Cal staff sign-in.";
+  $("authPass").autocomplete = req ? "new-password" : "current-password";
+  $("authErr").textContent = "";
+}
+$("modeSwitch").addEventListener("click", ()=> setAuthMode(authMode === "signin" ? "request" : "signin"));
+$("authForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = $("authErr");
+  err.textContent = "";
+  const onCodeStep = !$("stepCode").hidden;
+  if(!onCodeStep){
+    const email = $("authEmail").value.trim().toLowerCase();
+    const password = $("authPass").value;
+    if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
+    if(password.length < 6){ err.textContent = "Password needs at least 6 characters."; return; }
+    if(authMode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) err.textContent = "Wrong email or password. New here? Use Request access. Forgotten it? Ask an admin for a sign-in code.";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error){
+        err.textContent = /registered|exists/i.test(error.message) ? "That email already has an account — sign in instead." : "Couldn't create the account — try again.";
+      } else if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0){
+        err.textContent = "That email already has an account — sign in instead.";
+      }
+    }
+  } else {
+    const token = $("authCode").value.trim();
+    if(!token){ err.textContent = "Enter the code."; return; }
+    let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
+    if(res.error) err.textContent = "That code didn't work — check it, or ask for a new one.";
+  }
+});
+$("haveCode").addEventListener("click", ()=>{
+  const email = $("authEmail").value.trim().toLowerCase();
+  const err = $("authErr");
+  if(!/@cal\.delivery$/.test(email)){ err.textContent = "Type your @cal.delivery email first, then click again."; return; }
+  err.textContent = "";
+  pendingEmail = email;
+  $("stepEmail").hidden = true;
+  $("stepCode").hidden = false;
+  $("authCode").focus();
+});
+$("authBack").addEventListener("click", ()=>{ $("stepCode").hidden = true; $("stepEmail").hidden = false; });
+$("signOut").addEventListener("click", ()=> sb.auth.signOut());
+$("pendingSignOut").addEventListener("click", ()=> sb.auth.signOut());
+</script>
+</body>
+</html>
