@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
@@ -88,9 +89,45 @@ input:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
 .auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
 button.primary{font:inherit; font-weight:600; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; cursor:pointer;}
 button.primary:hover{background:var(--accent-ink);}
+button.ghost{font:inherit; font-size:12.5px; font-weight:600; background:var(--surface2); color:var(--muted);
+  border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer;
+  transition:color .15s ease, border-color .15s ease;}
+button.ghost:hover{color:var(--ink); border-color:var(--faint);}
+button.primary:disabled{opacity:.55; cursor:default;}
 .auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
 .linkish{display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;}
 .linkish:hover{color:var(--ink);}
+
+/* ---- bulk job list ---- */
+.bulk h2{font-size:15px; font-weight:700; letter-spacing:-0.01em; margin-bottom:4px;}
+.drop{border:1.5px dashed var(--line); border-radius:var(--radius); padding:18px 14px; text-align:center;
+  color:var(--muted); font-size:13px; cursor:pointer; transition:border-color .15s ease, background .15s ease; margin-top:10px;}
+.drop:hover, .drop.over{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink);}
+.drop b{color:var(--ink); font-weight:600;}
+.brow{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px;}
+.brow label{font-size:12.5px; color:var(--muted); display:flex; gap:7px; align-items:center;}
+.sel{font:inherit; font-size:13px; color:var(--ink); background:var(--surface2);
+  border:1px solid var(--line); border-radius:8px; padding:7px 9px;}
+.bstat{font-size:12.5px; color:var(--muted); margin-top:10px; min-height:17px;}
+.bstat.err{color:var(--bad);} .bstat.ok{color:var(--good);}
+.bmap{margin-top:10px; font-size:12px; color:var(--faint); line-height:1.7;}
+.bmap b{color:var(--ink); font-weight:600;}
+.bmap .pill{display:inline-block; background:var(--surface2); border:1px solid var(--line2);
+  border-radius:99px; padding:2px 9px; margin:0 4px 4px 0;}
+.btotals{display:flex; flex-wrap:wrap; gap:14px 26px; padding:12px 14px; background:var(--surface2);
+  border-radius:10px; margin-bottom:12px; font-size:12.5px; color:var(--muted);}
+.btotals b{display:block; color:var(--ink); font-family:"IBM Plex Mono",monospace; font-size:17px; font-weight:600;}
+.btotals .pos b{color:var(--good);} .btotals .neg b{color:var(--bad);}
+.tblwrap{overflow:auto; max-height:460px; border:1px solid var(--line2); border-radius:9px;}
+.btable{border-collapse:collapse; width:100%; font-size:12.5px;}
+.btable thead th{position:sticky; top:0; background:var(--surface2); color:var(--faint); text-align:left;
+  font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap;}
+.btable thead th.num{text-align:right;}
+.btable td{padding:6px 10px; border-bottom:1px solid var(--line2); white-space:nowrap;}
+.btable td.num{font-family:"IBM Plex Mono",monospace; text-align:right;}
+.btable tr.skip td{color:var(--faint); font-style:italic;}
+.bnote{font-size:12px; color:var(--faint);}
 </style>
 </head>
 <body>
@@ -175,6 +212,40 @@ button.primary:hover{background:var(--accent-ink);}
   </div>
   <div class="foot-note">Rate card: Small Van £0.70/mi (min £25) · SWB £0.90 (£30) · LWB £1.00 (£35) · XLWB £1.10 (£37.50) · Luton £1.30 (£65), loaded miles only.
   CX = the engine's expected third-party cost for this lane (pure CX cost base). Some drivers sit above the card, so treat wins under 10% as a coin toss. Availability still rules: a driver already positioned beats both numbers.</div>
+</div>
+
+<div class="card bulk">
+  <h2>Bulk price a job list</h2>
+  <div class="hint">Drop a customer's spreadsheet in. It works out each job's collection &rarr; delivery, the vehicle and the miles,
+    prices every row both ways, and hands the file back with the costs next to the original rows.</div>
+  <div class="drop" id="bDrop" tabindex="0" role="button">
+    <b>Drop a spreadsheet here</b> or click to choose &middot; CSV or Excel
+    <input type="file" id="bFile" accept=".csv,.xlsx,.xls" hidden>
+  </div>
+  <div class="brow" id="bOpts" hidden>
+    <label>No vehicle on a row? price it as
+      <select id="bDefault" class="sel">
+        <option>Small Van</option><option>SWB</option><option selected>LWB</option>
+        <option>XLWB</option><option>Luton</option>
+      </select>
+    </label>
+    <button class="primary" id="bRun" type="button">Price the list</button>
+    <button class="ghost" id="bClear" type="button">Clear</button>
+  </div>
+  <div class="bstat" id="bStat"></div>
+  <div class="bmap" id="bMap" hidden></div>
+</div>
+
+<div id="bResults" hidden>
+  <div class="card">
+    <div class="btotals" id="bTotals"></div>
+    <div class="tblwrap"><table class="btable"><thead id="bHead"></thead><tbody id="bBody"></tbody></table></div>
+    <div class="brow">
+      <button class="primary" id="bExportX" type="button">Export Excel</button>
+      <button class="ghost" id="bExportC" type="button">Export CSV</button>
+      <span class="bnote" id="bNote"></span>
+    </div>
+  </div>
 </div>
 
 </div>
@@ -299,6 +370,298 @@ function update(){
   $("results").hidden = false;
 }
 for(const id of ["pcFrom","pcTo","inMiles"]) $(id).addEventListener("input", update);
+
+
+/* ==== bulk job list pricing ==== */
+const LANE_FN = "https://ljofgxvmshetkhznqxaf.supabase.co/functions/v1/lane-map";
+let bRows = [], bHeaders = [], bMap = null, bVeh = {}, bPriced = [], bFileName = "job-list";
+
+const bStat = (msg, cls) => { const e = $("bStat"); e.textContent = msg || ""; e.className = "bstat" + (cls ? " " + cls : ""); };
+
+/* trade wording -> fleet class, so the list still prices if the AI is unavailable */
+function localVClass(s){
+  const v = String(s || "").toLowerCase();
+  if(!v.trim()) return null;
+  if(/artic|trailer|44\s*t|curtain/.test(v)) return "Artic";
+  if(/18\s*t|18\s*ton|rigid/.test(v)) return "18T";
+  if(/7[.,]?5\s*t|7\s*5\s*t/.test(v)) return "7.5T";
+  if(/luton|box\s*van|tail\s*?lift/.test(v)) return "Luton";
+  if(/xlwb|x\s*lwb|jumbo|extra\s*long/.test(v)) return "XLWB";
+  if(/lwb|long\s*wheel|sprinter|3\.5\s*t/.test(v)) return "LWB";
+  if(/swb|short\s*wheel|transit/.test(v)) return "SWB";
+  if(/small|car\s*derived|caddy|combo|bike|moped/.test(v)) return "Small Van";
+  return null;
+}
+const OWN_CLASSES = Object.keys(RATES);
+
+function bParseCSV(text){
+  const out = []; let row = [], cur = "", inQ = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQ){ if(c === '"'){ if(text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; } else cur += c; }
+    else if(c === '"') inQ = true;
+    else if(c === ","){ row.push(cur); cur = ""; }
+    else if(c === "\n" || c === "\r"){
+      if(c === "\r" && text[i+1] === "\n") i++;
+      row.push(cur); cur = "";
+      if(row.some(v=>v !== "")) out.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if(row.some(v=>v !== "")) out.push(row);
+  return out;
+}
+function bIngest(grid, name){
+  const hdr = grid[0].map(h=>String(h).trim());
+  const rows = [];
+  for(let r=1;r<grid.length;r++){
+    const line = grid[r];
+    if(!line || !line.some(v=>String(v).trim() !== "")) continue;
+    const o = {};
+    hdr.forEach((h,c)=>{ if(h) o[h] = String(line[c] ?? "").trim(); });
+    rows.push(o);
+  }
+  bHeaders = hdr.filter(Boolean);
+  bRows = rows;
+  bFileName = name.replace(/\.[^.]+$/, "");
+  bStat(rows.length + " rows read from " + name + ".");
+  $("bOpts").hidden = false;
+}
+async function bHandleFile(f){
+  if(!f) return;
+  try{
+    if(/\.(xlsx|xls)$/i.test(f.name)){
+      const wb = XLSX.read(await f.arrayBuffer(), { cellDates:false });
+      const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, raw:false, defval:"" });
+      bIngest(grid, f.name);
+    } else {
+      bIngest(bParseCSV(await f.text()), f.name);
+    }
+  }catch(e){ console.error(e); bStat("Couldn't read that file — is it a normal CSV or Excel sheet?", "err"); }
+}
+$("bDrop").addEventListener("click", ()=>$("bFile").click());
+$("bDrop").addEventListener("keydown", e=>{ if(e.key === "Enter" || e.key === " ") $("bFile").click(); });
+$("bDrop").addEventListener("dragover", e=>{ e.preventDefault(); $("bDrop").classList.add("over"); });
+$("bDrop").addEventListener("dragleave", ()=>$("bDrop").classList.remove("over"));
+$("bDrop").addEventListener("drop", e=>{ e.preventDefault(); $("bDrop").classList.remove("over"); bHandleFile(e.dataTransfer.files[0]); });
+$("bFile").addEventListener("change", ()=>{ bHandleFile($("bFile").files[0]); $("bFile").value = ""; });
+$("bClear").addEventListener("click", ()=>{
+  bRows = []; bHeaders = []; bMap = null; bVeh = {}; bPriced = [];
+  $("bOpts").hidden = true; $("bResults").hidden = true; $("bMap").hidden = true; bStat("");
+});
+
+/* header-name guess, used to gather vehicle values before the AI call (and as a fallback) */
+function guessCols(){
+  const find = re => bHeaders.find(h=>re.test(h)) || null;
+  return {
+    collection_postcode: find(/collect.*(post|code|pc)|(post|pc).*collect|^from|origin|pickup/i),
+    delivery_postcode:   find(/deliver.*(post|code|pc)|(post|pc).*deliver|^to\b|destination|consignee|drop/i),
+    vehicle:             find(/vehicle|van\b|size|service|type/i),
+    reference:           find(/ref|job|order|consign/i),
+    miles:               find(/miles|mileage|distance/i),
+    charge:              find(/price|rate|charge|cost|sell|invoice|value/i),
+  };
+}
+async function bAiMap(){
+  const guess = guessCols();
+  const vehVals = guess.vehicle
+    ? [...new Set(bRows.map(r=>String(r[guess.vehicle] || "").trim()).filter(Boolean))].slice(0, 60)
+    : [];
+  const samples = bRows.slice(0, 8).map(r=>bHeaders.map(h=>r[h] ?? ""));
+  const res = await fetch(LANE_FN, {
+    method: "POST",
+    headers: { "Content-Type":"application/json", "apikey": SB_KEY,
+               "Authorization": "Bearer " + sbSession.access_token },
+    body: JSON.stringify({ headers: bHeaders, samples, vehicles: vehVals }),
+  });
+  if(!res.ok) throw new Error("lane-map " + res.status);
+  const out = await res.json();
+  const map = {};
+  for(const k of ["collection_postcode","delivery_postcode","vehicle","reference","miles","charge"]){
+    map[k] = out.columns[k] || guess[k] || null;
+  }
+  const veh = {};
+  for(const v of out.vehicles || []) if(v.class) veh[v.value.toLowerCase()] = v.class;
+  return { map, veh, note: out.note };
+}
+
+function bVClassOf(raw){
+  const key = String(raw || "").trim().toLowerCase();
+  if(!key) return null;
+  return bVeh[key] || localVClass(key);
+}
+
+function bPriceRow(row){
+  const colPc = bMap.collection_postcode ? row[bMap.collection_postcode] : "";
+  const delPc = bMap.delivery_postcode ? row[bMap.delivery_postcode] : "";
+  const colA = areaOf(colPc), delA = areaOf(delPc);
+  if(!colA || !delA || !GEO[colA] || !GEO[delA]){
+    return { skip: !colA || !delA ? "no postcode pair" : "unknown area " + (!GEO[colA] ? colA : delA) };
+  }
+  let miles = null, milesSrc = "est";
+  if(bMap.miles){
+    const m = parseFloat(String(row[bMap.miles] || "").replace(/[^0-9.]/g, ""));
+    if(m > 0){ miles = Math.round(m); milesSrc = "sheet"; }
+  }
+  if(!miles) miles = estMiles(colA, delA);
+
+  const vRaw = bMap.vehicle ? row[bMap.vehicle] : "";
+  let vcls = bVClassOf(vRaw), vSrc = "sheet";
+  if(!vcls){ vcls = $("bDefault").value; vSrc = "assumed"; }
+
+  const deadMi = estMiles(BASE, colA);
+  const inPatch = deadMi <= 50, stretch = deadMi > 50 && deadMi <= 85;
+  const cx = cxCost(vcls, miles, colA, delA);
+  const hasOwnCard = OWN_CLASSES.includes(vcls);
+  const own = hasOwnCard ? ownCost(vcls, miles) : null;
+
+  let best, why, rec;
+  if(!hasOwnCard){ best = "CX"; why = "no own-driver card for " + vcls; rec = cx; }
+  else if(!inPatch && !stretch){ best = "CX"; why = "collection ~" + deadMi + " mi from the NW base"; rec = cx; }
+  else {
+    const diff = (cx - own) / cx;
+    if(diff >= 0.03){ best = "Our driver"; why = "saves " + gbp(cx - own); rec = own; }
+    else if(diff <= -0.03){ best = "CX"; why = "saves " + gbp(own - cx); rec = cx; }
+    else { best = "Either"; why = "within 3%"; rec = Math.min(own, cx); }
+    if(stretch && best === "Our driver") why += " — but a ~" + deadMi + " mi dead leg first";
+  }
+  let charge = null;
+  if(bMap.charge){
+    const c = parseFloat(String(row[bMap.charge] || "").replace(/[^0-9.]/g, ""));
+    if(c > 0) charge = c;
+  }
+  return { colA, delA, miles, milesSrc, vcls, vSrc, own, cx, best, why, rec, charge };
+}
+
+$("bRun").addEventListener("click", async ()=>{
+  if(!bRows.length) return;
+  $("bRun").disabled = true;
+  bStat("Reading the columns…");
+  try{
+    let note = null;
+    try{
+      const ai = await bAiMap();
+      bMap = ai.map; bVeh = ai.veh; note = ai.note;
+    }catch(e){
+      console.error(e);
+      bMap = guessCols(); bVeh = {};
+      note = "AI unavailable — matched the columns by name instead, check them.";
+    }
+    if(!bMap.collection_postcode || !bMap.delivery_postcode){
+      bStat("Couldn't find both a collection and a delivery postcode column — check the sheet has them.", "err");
+      $("bRun").disabled = false; return;
+    }
+    bPriced = bRows.map(r=>({ row:r, p:bPriceRow(r) }));
+    bRenderMap(note);
+    bRenderResults();
+    const done = bPriced.filter(x=>!x.p.skip).length;
+    bStat("Priced " + done + " of " + bPriced.length + " rows.", "ok");
+  }catch(e){
+    console.error(e); bStat("Something went wrong pricing that list — try again.", "err");
+  }
+  $("bRun").disabled = false;
+});
+
+function bRenderMap(note){
+  const el = $("bMap");
+  const pill = (lab, col) => `<span class="pill">${lab}: <b>${col ? col : "—"}</b></span>`;
+  const vehCount = Object.keys(bVeh).length;
+  el.innerHTML = pill("Collection", bMap.collection_postcode) + pill("Delivery", bMap.delivery_postcode)
+    + pill("Vehicle", bMap.vehicle) + pill("Miles", bMap.miles) + pill("Their price", bMap.charge)
+    + (vehCount ? `<span class="pill">${vehCount} vehicle wording${vehCount === 1 ? "" : "s"} mapped</span>` : "")
+    + (note ? `<div>${note}</div>` : "");
+  el.hidden = false;
+}
+
+function bRenderResults(){
+  const hasCharge = !!bMap.charge;
+  $("bHead").innerHTML = "<tr><th>Job</th><th>Lane</th><th class='num'>Miles</th><th>Vehicle</th>"
+    + "<th class='num'>Our driver</th><th class='num'>CX</th><th>Best</th><th class='num'>Cost</th>"
+    + (hasCharge ? "<th class='num'>They pay</th><th class='num'>Margin</th>" : "") + "</tr>";
+  const cap = 400;
+  $("bBody").innerHTML = bPriced.slice(0, cap).map(({row, p}, i)=>{
+    const ref = bMap.reference ? (row[bMap.reference] || "") : String(i + 1);
+    if(p.skip) return `<tr class="skip"><td>${esc(ref)}</td><td colspan="${hasCharge ? 9 : 7}">skipped — ${esc(p.skip)}</td></tr>`;
+    const cls = p.best === "Our driver" ? "own" : p.best === "CX" ? "cx" : "even";
+    const margin = p.charge != null ? p.charge - p.rec : null;
+    return `<tr><td>${esc(ref)}</td>`
+      + `<td>${p.colA} &rarr; ${p.delA}</td>`
+      + `<td class="num">${p.miles}${p.milesSrc === "est" ? "*" : ""}</td>`
+      + `<td>${p.vcls}${p.vSrc === "assumed" ? "*" : ""}</td>`
+      + `<td class="num">${p.own == null ? "—" : gbp(p.own)}</td>`
+      + `<td class="num">${gbp(p.cx)}</td>`
+      + `<td><span class="badge ${cls}" title="${esc(p.why)}">${p.best}</span></td>`
+      + `<td class="num">${gbp(p.rec)}</td>`
+      + (hasCharge ? `<td class="num">${p.charge == null ? "—" : gbp(p.charge)}</td>`
+          + `<td class="num" style="color:${margin == null ? "inherit" : margin >= 0 ? "var(--good)" : "var(--bad)"}">`
+          + `${margin == null ? "—" : gbp(margin)}</td>` : "")
+      + `</tr>`;
+  }).join("");
+
+  const ok = bPriced.filter(x=>!x.p.skip);
+  const sum = f => ok.reduce((a,x)=>a + (f(x.p) || 0), 0);
+  const ownWins = ok.filter(x=>x.p.best === "Our driver").length;
+  const cxWins  = ok.filter(x=>x.p.best === "CX").length;
+  const totRec = sum(p=>p.rec);
+  const withCharge = ok.filter(x=>x.p.charge != null);
+  const totCharge = withCharge.reduce((a,x)=>a + x.p.charge, 0);
+  const totRecC = withCharge.reduce((a,x)=>a + x.p.rec, 0);
+  const marg = totCharge - totRecC;
+  let html = `<span>jobs priced<b>${ok.length}</b></span>`
+    + `<span>our driver / CX<b>${ownWins} / ${cxWins}</b></span>`
+    + `<span>total cost to run<b>${gbp(totRec)}</b></span>`;
+  if(withCharge.length){
+    html += `<span>they pay (${withCharge.length} rows)<b>${gbp(totCharge)}</b></span>`
+      + `<span class="${marg >= 0 ? "pos" : "neg"}">margin on those<b>${gbp(marg)}</b></span>`;
+  }
+  const skipped = bPriced.length - ok.length;
+  if(skipped) html += `<span>skipped<b>${skipped}</b></span>`;
+  $("bTotals").innerHTML = html;
+  $("bNote").textContent = "* estimated miles / assumed vehicle."
+    + (bPriced.length > cap ? "  Showing the first " + cap + " rows — the export has them all." : "");
+  $("bResults").hidden = false;
+}
+
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+function bExportGrid(){
+  const extra = ["Cal vehicle","Cal miles","Cal own driver £","Cal CX £","Cal best","Cal cost £"];
+  if(bMap.charge) extra.push("Cal margin £");
+  const head = bHeaders.concat(extra);
+  const body = bPriced.map(({row, p})=>{
+    const base = bHeaders.map(h=>row[h] ?? "");
+    if(p.skip) return base.concat(["", "", "", "", "not priced — " + p.skip, ""], bMap.charge ? [""] : []);
+    const cells = [
+      p.vcls + (p.vSrc === "assumed" ? " (assumed)" : ""),
+      p.miles + (p.milesSrc === "est" ? " (est)" : ""),
+      p.own == null ? "" : Math.round(p.own),
+      Math.round(p.cx),
+      p.best + " — " + p.why,
+      Math.round(p.rec),
+    ];
+    if(bMap.charge) cells.push(p.charge == null ? "" : Math.round(p.charge - p.rec));
+    return base.concat(cells);
+  });
+  return [head].concat(body);
+}
+$("bExportX").addEventListener("click", ()=>{
+  const ws = XLSX.utils.aoa_to_sheet(bExportGrid());
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Priced");
+  XLSX.writeFile(wb, bFileName + " - priced.xlsx");
+});
+$("bExportC").addEventListener("click", ()=>{
+  const csv = bExportGrid().map(r=>r.map(c=>{
+    const s = String(c ?? "");
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" }));
+  a.download = bFileName + " - priced.csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+});
 
 /* ==== auth (shared Load Lab gate) ==== */
 const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
