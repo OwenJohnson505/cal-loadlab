@@ -216,17 +216,20 @@ button.primary:disabled{opacity:.55; cursor:default;}
 
 <div class="card bulk">
   <h2>Bulk price a job list</h2>
-  <div class="hint">Drop a customer's spreadsheet in. It works out each job's collection &rarr; delivery, the vehicle and the miles,
-    prices every row both ways, and hands the file back with the costs next to the original rows.</div>
+  <div class="hint">Drop a customer's spreadsheet in. It reads each lane's collection &rarr; delivery and miles, prices every row
+    for whichever vehicles the sheet asks for, and hands the file back with the costs filled in beside the original rows.</div>
   <div class="drop" id="bDrop" tabindex="0" role="button">
     <b>Drop a spreadsheet here</b> or click to choose &middot; CSV or Excel
     <input type="file" id="bFile" accept=".csv,.xlsx,.xls" hidden>
   </div>
+  <div class="brow" id="bSheetRow" hidden>
+    <label>Sheet <select id="bSheet" class="sel"></select></label>
+  </div>
   <div class="brow" id="bOpts" hidden>
-    <label>No vehicle on a row? price it as
+    <label id="bDefWrap">If a row has no vehicle, price it as
       <select id="bDefault" class="sel">
         <option>Small Van</option><option>SWB</option><option selected>LWB</option>
-        <option>XLWB</option><option>Luton</option>
+        <option>XLWB</option><option>Luton</option><option>7.5T</option><option>18T</option><option>Artic</option>
       </select>
     </label>
     <button class="primary" id="bRun" type="button">Price the list</button>
@@ -374,11 +377,14 @@ for(const id of ["pcFrom","pcTo","inMiles"]) $(id).addEventListener("input", upd
 
 /* ==== bulk job list pricing ==== */
 const LANE_FN = "https://ljofgxvmshetkhznqxaf.supabase.co/functions/v1/lane-map";
-let bRows = [], bHeaders = [], bMap = null, bVeh = {}, bPriced = [], bFileName = "job-list";
+const RE_PC_FULL = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+let bWB = null, bSheetName = "", bRows = [], bHeaders = [], bMap = null, bVeh = {},
+    bPriced = [], bFileName = "job-list", bClasses = [], bMulti = false;
 
 const bStat = (msg, cls) => { const e = $("bStat"); e.textContent = msg || ""; e.className = "bstat" + (cls ? " " + cls : ""); };
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 
-/* trade wording -> fleet class, so the list still prices if the AI is unavailable */
+/* trade wording -> fleet class, so a list still prices if the AI is unavailable */
 function localVClass(s){
   const v = String(s || "").toLowerCase();
   if(!v.trim()) return null;
@@ -393,6 +399,7 @@ function localVClass(s){
   return null;
 }
 const OWN_CLASSES = Object.keys(RATES);
+const ALL_CLASSES = Object.keys(CURVES);
 
 function bParseCSV(text){
   const out = []; let row = [], cur = "", inQ = false;
@@ -412,8 +419,24 @@ function bParseCSV(text){
   if(row.some(v=>v !== "")) out.push(row);
   return out;
 }
-function bIngest(grid, name){
-  const hdr = grid[0].map(h=>String(h).trim());
+/* how lane-list-ish is a grid? postcode columns matter far more than size */
+function bScoreGrid(grid){
+  if(!grid || grid.length < 2) return -1;
+  const hdr = grid[0].map(h=>String(h || "").trim());
+  if(hdr.filter(Boolean).length < 2) return -1;
+  const sample = grid.slice(1, 40);
+  let pcCols = 0;
+  for(let c=0;c<hdr.length;c++){
+    const vals = sample.map(r=>String((r || [])[c] ?? "").trim()).filter(Boolean);
+    if(vals.length >= 3 && vals.filter(v=>RE_PC_FULL.test(v)).length >= vals.length * 0.6) pcCols++;
+  }
+  return pcCols * 1000 + Math.min(grid.length, 900);
+}
+function bGridOf(name){
+  return XLSX.utils.sheet_to_json(bWB.Sheets[name], { header:1, raw:false, defval:"" });
+}
+function bIngestGrid(grid, sheetLabel){
+  const hdr = grid[0].map(h=>String(h || "").trim().replace(/\s*\n\s*/g, " "));
   const rows = [];
   for(let r=1;r<grid.length;r++){
     const line = grid[r];
@@ -424,22 +447,36 @@ function bIngest(grid, name){
   }
   bHeaders = hdr.filter(Boolean);
   bRows = rows;
-  bFileName = name.replace(/\.[^.]+$/, "");
-  bStat(rows.length + " rows read from " + name + ".");
+  bStat(rows.length + " rows read" + (sheetLabel ? " from “" + sheetLabel + "”" : "") + ".");
   $("bOpts").hidden = false;
+  $("bResults").hidden = true;
+  $("bMap").hidden = true;
 }
 async function bHandleFile(f){
   if(!f) return;
+  bWB = null; $("bSheetRow").hidden = true;
+  bFileName = f.name.replace(/\.[^.]+$/, "");
   try{
     if(/\.(xlsx|xls)$/i.test(f.name)){
-      const wb = XLSX.read(await f.arrayBuffer(), { cellDates:false });
-      const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, raw:false, defval:"" });
-      bIngest(grid, f.name);
+      bWB = XLSX.read(await f.arrayBuffer(), { cellDates:false });
+      const scored = bWB.SheetNames.map(n=>({ n, s: bScoreGrid(bGridOf(n)) }))
+                        .sort((a,b)=>b.s - a.s);
+      bSheetName = scored[0].n;
+      if(bWB.SheetNames.length > 1){
+        $("bSheet").innerHTML = bWB.SheetNames.map(n=>`<option${n === bSheetName ? " selected" : ""}>${esc(n)}</option>`).join("");
+        $("bSheetRow").hidden = false;
+      }
+      bIngestGrid(bGridOf(bSheetName), bSheetName);
     } else {
-      bIngest(bParseCSV(await f.text()), f.name);
+      bSheetName = "";
+      bIngestGrid(bParseCSV(await f.text()), "");
     }
   }catch(e){ console.error(e); bStat("Couldn't read that file — is it a normal CSV or Excel sheet?", "err"); }
 }
+$("bSheet").addEventListener("change", ()=>{
+  bSheetName = $("bSheet").value;
+  bIngestGrid(bGridOf(bSheetName), bSheetName);
+});
 $("bDrop").addEventListener("click", ()=>$("bFile").click());
 $("bDrop").addEventListener("keydown", e=>{ if(e.key === "Enter" || e.key === " ") $("bFile").click(); });
 $("bDrop").addEventListener("dragover", e=>{ e.preventDefault(); $("bDrop").classList.add("over"); });
@@ -447,21 +484,32 @@ $("bDrop").addEventListener("dragleave", ()=>$("bDrop").classList.remove("over")
 $("bDrop").addEventListener("drop", e=>{ e.preventDefault(); $("bDrop").classList.remove("over"); bHandleFile(e.dataTransfer.files[0]); });
 $("bFile").addEventListener("change", ()=>{ bHandleFile($("bFile").files[0]); $("bFile").value = ""; });
 $("bClear").addEventListener("click", ()=>{
-  bRows = []; bHeaders = []; bMap = null; bVeh = {}; bPriced = [];
-  $("bOpts").hidden = true; $("bResults").hidden = true; $("bMap").hidden = true; bStat("");
+  bWB = null; bRows = []; bHeaders = []; bMap = null; bVeh = {}; bPriced = []; bClasses = []; bMulti = false;
+  $("bOpts").hidden = true; $("bSheetRow").hidden = true; $("bResults").hidden = true; $("bMap").hidden = true; bStat("");
 });
 
-/* header-name guess, used to gather vehicle values before the AI call (and as a fallback) */
+/* header-name guesses, used to gather vehicle values before the AI call and as a fallback */
 function guessCols(){
   const find = re => bHeaders.find(h=>re.test(h)) || null;
   return {
-    collection_postcode: find(/collect.*(post|code|pc)|(post|pc).*collect|^from|origin|pickup/i),
-    delivery_postcode:   find(/deliver.*(post|code|pc)|(post|pc).*deliver|^to\b|destination|consignee|drop/i),
-    vehicle:             find(/vehicle|van\b|size|service|type/i),
-    reference:           find(/ref|job|order|consign/i),
+    collection_postcode: find(/(collect|from|origin|pickup|sender).*(post|code|pc)|(post|pc).*(collect|from|origin)/i) || find(/^from\b/i),
+    delivery_postcode:   find(/(deliver|to|destination|consignee|drop).*(post|code|pc)|(post|pc).*(deliver|to|destination)/i) || find(/^to\b/i),
+    vehicle:             find(/vehicle|van\b|service|size/i),
+    reference:           find(/ref|job|order|consign|lane/i),
     miles:               find(/miles|mileage|distance/i),
     charge:              find(/price|rate|charge|cost|sell|invoice|value/i),
   };
+}
+/* headers that name a fleet class and are mostly empty = price columns waiting to be filled */
+function guessPriceCols(){
+  const out = [];
+  for(const h of bHeaders){
+    const cls = localVClass(h);
+    if(!cls) continue;
+    const vals = bRows.slice(0, 40).map(r=>String(r[h] ?? "").trim()).filter(Boolean);
+    out.push({ header: h, class: cls, filled: vals.length > 0 });
+  }
+  return out;
 }
 async function bAiMap(){
   const guess = guessCols();
@@ -482,9 +530,30 @@ async function bAiMap(){
     map[k] = out.columns[k] || guess[k] || null;
   }
   const veh = {};
-  for(const v of out.vehicles || []) if(v.class) veh[v.value.toLowerCase()] = v.class;
-  return { map, veh, note: out.note };
+  for(const v of out.vehicles || []) if(v.class) veh[String(v.value).toLowerCase()] = v.class;
+  let pcols = (out.price_columns || []).filter(c=>bHeaders.includes(c.header));
+  if(!pcols.length) pcols = guessPriceCols();
+  return { map, veh, pcols, note: out.note };
 }
+
+/* depot/site name columns, so a lane reads "D10 Wigan -> D30 Winsford" not "WN -> CW" */
+function bNameCols(){
+  const pick = side => bHeaders.find(h=>
+    new RegExp(side === "from" ? "^(from|collect|origin|pick)" : "^(to|deliver|dest|drop)", "i").test(h) &&
+    /depot|name|site|branch|location|address|customer/i.test(h)) || null;
+  return { from: pick("from"), to: pick("to") };
+}
+function bLaneLabel(row, p){
+  const n = bNames || { from:null, to:null };
+  const a = n.from ? String(row[n.from] || "").trim() : "";
+  const b = n.to ? String(row[n.to] || "").trim() : "";
+  if(a && b) return esc(a) + " &rarr; " + esc(b);
+  const pcA = bMap.collection_postcode ? String(row[bMap.collection_postcode] || "").trim() : "";
+  const pcB = bMap.delivery_postcode ? String(row[bMap.delivery_postcode] || "").trim() : "";
+  if(pcA && pcB) return esc(pcA) + " &rarr; " + esc(pcB);
+  return p && p.colA ? p.colA + " &rarr; " + p.delA : "—";
+}
+let bNames = null;
 
 function bVClassOf(raw){
   const key = String(raw || "").trim().toLowerCase();
@@ -492,12 +561,31 @@ function bVClassOf(raw){
   return bVeh[key] || localVClass(key);
 }
 
+/* one lane, one vehicle class */
+function bCost(vcls, miles, colA, delA, deadMi){
+  const inPatch = deadMi <= 50, stretch = deadMi > 50 && deadMi <= 85;
+  const cx = cxCost(vcls, miles, colA, delA);
+  const hasOwnCard = OWN_CLASSES.includes(vcls);
+  const own = hasOwnCard ? ownCost(vcls, miles) : null;
+  let best, why, rec;
+  if(!hasOwnCard){ best = "CX"; why = "no own-driver card for " + vcls + " — expected CX buy cost"; rec = cx; }
+  else if(!inPatch && !stretch){ best = "CX"; why = "collection ~" + deadMi + " mi from the NW base"; rec = cx; }
+  else {
+    const diff = (cx - own) / cx;
+    if(diff >= 0.03){ best = "Our driver"; why = "saves " + gbp(cx - own) + " vs CX"; rec = own; }
+    else if(diff <= -0.03){ best = "CX"; why = "saves " + gbp(own - cx) + " vs our card"; rec = cx; }
+    else { best = "Either"; why = "within 3%"; rec = Math.min(own, cx); }
+    if(stretch && best === "Our driver") why += " — but a ~" + deadMi + " mi dead leg first";
+  }
+  return { vcls, own, cx, best, why, rec };
+}
+
 function bPriceRow(row){
   const colPc = bMap.collection_postcode ? row[bMap.collection_postcode] : "";
   const delPc = bMap.delivery_postcode ? row[bMap.delivery_postcode] : "";
   const colA = areaOf(colPc), delA = areaOf(delPc);
   if(!colA || !delA || !GEO[colA] || !GEO[delA]){
-    return { skip: !colA || !delA ? "no postcode pair" : "unknown area " + (!GEO[colA] ? colA : delA) };
+    return { skip: (!colA || !delA) ? "no postcode pair" : "unknown area " + (!GEO[colA] ? colA : delA) };
   }
   let miles = null, milesSrc = "est";
   if(bMap.miles){
@@ -505,33 +593,23 @@ function bPriceRow(row){
     if(m > 0){ miles = Math.round(m); milesSrc = "sheet"; }
   }
   if(!miles) miles = estMiles(colA, delA);
-
-  const vRaw = bMap.vehicle ? row[bMap.vehicle] : "";
-  let vcls = bVClassOf(vRaw), vSrc = "sheet";
-  if(!vcls){ vcls = $("bDefault").value; vSrc = "assumed"; }
-
   const deadMi = estMiles(BASE, colA);
-  const inPatch = deadMi <= 50, stretch = deadMi > 50 && deadMi <= 85;
-  const cx = cxCost(vcls, miles, colA, delA);
-  const hasOwnCard = OWN_CLASSES.includes(vcls);
-  const own = hasOwnCard ? ownCost(vcls, miles) : null;
 
-  let best, why, rec;
-  if(!hasOwnCard){ best = "CX"; why = "no own-driver card for " + vcls; rec = cx; }
-  else if(!inPatch && !stretch){ best = "CX"; why = "collection ~" + deadMi + " mi from the NW base"; rec = cx; }
-  else {
-    const diff = (cx - own) / cx;
-    if(diff >= 0.03){ best = "Our driver"; why = "saves " + gbp(cx - own); rec = own; }
-    else if(diff <= -0.03){ best = "CX"; why = "saves " + gbp(own - cx); rec = cx; }
-    else { best = "Either"; why = "within 3%"; rec = Math.min(own, cx); }
-    if(stretch && best === "Our driver") why += " — but a ~" + deadMi + " mi dead leg first";
-  }
   let charge = null;
   if(bMap.charge){
     const c = parseFloat(String(row[bMap.charge] || "").replace(/[^0-9.]/g, ""));
     if(c > 0) charge = c;
   }
-  return { colA, delA, miles, milesSrc, vcls, vSrc, own, cx, best, why, rec, charge };
+  const base = { colA, delA, miles, milesSrc, deadMi, charge };
+
+  if(bMulti){
+    base.cells = bClasses.map(c=>bCost(c.class, miles, colA, delA, deadMi));
+    return base;
+  }
+  const vRaw = bMap.vehicle ? row[bMap.vehicle] : "";
+  let vcls = bVClassOf(vRaw), vSrc = "sheet";
+  if(!vcls){ vcls = $("bDefault").value; vSrc = "assumed"; }
+  return Object.assign(base, bCost(vcls, miles, colA, delA, deadMi), { vSrc });
 }
 
 $("bRun").addEventListener("click", async ()=>{
@@ -539,24 +617,36 @@ $("bRun").addEventListener("click", async ()=>{
   $("bRun").disabled = true;
   bStat("Reading the columns…");
   try{
-    let note = null;
+    let note = null, pcols = [];
     try{
       const ai = await bAiMap();
-      bMap = ai.map; bVeh = ai.veh; note = ai.note;
+      bMap = ai.map; bVeh = ai.veh; pcols = ai.pcols; note = ai.note;
     }catch(e){
       console.error(e);
-      bMap = guessCols(); bVeh = {};
-      note = "AI unavailable — matched the columns by name instead, check them.";
+      bMap = guessCols(); bVeh = {}; pcols = guessPriceCols();
+      note = "AI unavailable — matched the columns by name instead, so check them.";
     }
     if(!bMap.collection_postcode || !bMap.delivery_postcode){
-      bStat("Couldn't find both a collection and a delivery postcode column — check the sheet has them.", "err");
+      bStat("Couldn't find both a collection and a delivery postcode column on this sheet — pick a different sheet, or check the file.", "err");
       $("bRun").disabled = false; return;
     }
+    // a sheet with per-vehicle price columns wants every lane priced for each of them
+    bClasses = pcols.map(c=>({ class: c.class, col: c.header }));
+    bMulti = bClasses.length > 0;
+    // a column we're about to fill isn't what they pay us today
+    if(bMap.charge && bClasses.some(c=>c.col === bMap.charge)) bMap.charge = null;
+    if(!bMulti && !bMap.vehicle){
+      bClasses = [{ class: $("bDefault").value, col: null }];
+      bMulti = true;
+    }
+    bNames = bNameCols();
+    $("bDefWrap").hidden = bMulti;
     bPriced = bRows.map(r=>({ row:r, p:bPriceRow(r) }));
     bRenderMap(note);
     bRenderResults();
     const done = bPriced.filter(x=>!x.p.skip).length;
-    bStat("Priced " + done + " of " + bPriced.length + " rows.", "ok");
+    bStat("Priced " + done + " of " + bPriced.length + " lanes"
+      + (bMulti ? " for " + bClasses.map(c=>c.class).join(", ") : "") + ".", "ok");
   }catch(e){
     console.error(e); bStat("Something went wrong pricing that list — try again.", "err");
   }
@@ -564,91 +654,128 @@ $("bRun").addEventListener("click", async ()=>{
 });
 
 function bRenderMap(note){
-  const el = $("bMap");
-  const pill = (lab, col) => `<span class="pill">${lab}: <b>${col ? col : "—"}</b></span>`;
+  const pill = (lab, col) => `<span class="pill">${lab}: <b>${col ? esc(col) : "—"}</b></span>`;
   const vehCount = Object.keys(bVeh).length;
-  el.innerHTML = pill("Collection", bMap.collection_postcode) + pill("Delivery", bMap.delivery_postcode)
-    + pill("Vehicle", bMap.vehicle) + pill("Miles", bMap.miles) + pill("Their price", bMap.charge)
-    + (vehCount ? `<span class="pill">${vehCount} vehicle wording${vehCount === 1 ? "" : "s"} mapped</span>` : "")
-    + (note ? `<div>${note}</div>` : "");
-  el.hidden = false;
+  let html = pill("Collection", bMap.collection_postcode) + pill("Delivery", bMap.delivery_postcode)
+    + pill("Miles", bMap.miles) + (bMap.reference ? pill("Ref", bMap.reference) : "");
+  if(bMulti){
+    html += bClasses.map(c=>`<span class="pill">Pricing <b>${esc(c.class)}</b>${c.col ? " &rarr; " + esc(c.col) : ""}</span>`).join("");
+  } else {
+    html += pill("Vehicle", bMap.vehicle) + (vehCount ? `<span class="pill">${vehCount} vehicle wording${vehCount === 1 ? "" : "s"} mapped</span>` : "");
+  }
+  if(bMap.charge) html += pill("Their price", bMap.charge);
+  if(note) html += `<div>${esc(note)}</div>`;
+  $("bMap").innerHTML = html;
+  $("bMap").hidden = false;
 }
 
 function bRenderResults(){
-  const hasCharge = !!bMap.charge;
-  $("bHead").innerHTML = "<tr><th>Job</th><th>Lane</th><th class='num'>Miles</th><th>Vehicle</th>"
-    + "<th class='num'>Our driver</th><th class='num'>CX</th><th>Best</th><th class='num'>Cost</th>"
-    + (hasCharge ? "<th class='num'>They pay</th><th class='num'>Margin</th>" : "") + "</tr>";
+  const hasCharge = !!bMap.charge && !bMulti;
   const cap = 400;
-  $("bBody").innerHTML = bPriced.slice(0, cap).map(({row, p}, i)=>{
-    const ref = bMap.reference ? (row[bMap.reference] || "") : String(i + 1);
-    if(p.skip) return `<tr class="skip"><td>${esc(ref)}</td><td colspan="${hasCharge ? 9 : 7}">skipped — ${esc(p.skip)}</td></tr>`;
-    const cls = p.best === "Our driver" ? "own" : p.best === "CX" ? "cx" : "even";
-    const margin = p.charge != null ? p.charge - p.rec : null;
-    return `<tr><td>${esc(ref)}</td>`
-      + `<td>${p.colA} &rarr; ${p.delA}</td>`
-      + `<td class="num">${p.miles}${p.milesSrc === "est" ? "*" : ""}</td>`
-      + `<td>${p.vcls}${p.vSrc === "assumed" ? "*" : ""}</td>`
-      + `<td class="num">${p.own == null ? "—" : gbp(p.own)}</td>`
-      + `<td class="num">${gbp(p.cx)}</td>`
-      + `<td><span class="badge ${cls}" title="${esc(p.why)}">${p.best}</span></td>`
-      + `<td class="num">${gbp(p.rec)}</td>`
-      + (hasCharge ? `<td class="num">${p.charge == null ? "—" : gbp(p.charge)}</td>`
-          + `<td class="num" style="color:${margin == null ? "inherit" : margin >= 0 ? "var(--good)" : "var(--bad)"}">`
-          + `${margin == null ? "—" : gbp(margin)}</td>` : "")
-      + `</tr>`;
-  }).join("");
+  if(bMulti){
+    $("bHead").innerHTML = "<tr><th>Lane</th><th class='num'>Miles</th>"
+      + bClasses.map(c=>`<th class='num'>${esc(c.class)}</th>`).join("") + "</tr>";
+    $("bBody").innerHTML = bPriced.slice(0, cap).map(({row, p})=>{
+      const ref = bMap.reference ? (row[bMap.reference] || "") : "";
+      const lane = (ref ? esc(ref) + " · " : "") + bLaneLabel(row, p);
+      if(p.skip) return `<tr class="skip"><td>${lane}</td><td colspan="${bClasses.length + 1}">skipped — ${esc(p.skip)}</td></tr>`;
+      return `<tr><td>${lane}</td><td class="num">${p.miles}${p.milesSrc === "est" ? "*" : ""}</td>`
+        + p.cells.map(c=>`<td class="num" title="${esc(c.best + " — " + c.why)}">${gbp(c.rec)}</td>`).join("")
+        + "</tr>";
+    }).join("");
+  } else {
+    $("bHead").innerHTML = "<tr><th>Job</th><th>Lane</th><th class='num'>Miles</th><th>Vehicle</th>"
+      + "<th class='num'>Our driver</th><th class='num'>CX</th><th>Best</th><th class='num'>Cost</th>"
+      + (hasCharge ? "<th class='num'>They pay</th><th class='num'>Margin</th>" : "") + "</tr>";
+    $("bBody").innerHTML = bPriced.slice(0, cap).map(({row, p}, i)=>{
+      const ref = bMap.reference ? (row[bMap.reference] || "") : String(i + 1);
+      if(p.skip) return `<tr class="skip"><td>${esc(ref)}</td><td colspan="${hasCharge ? 9 : 7}">skipped — ${esc(p.skip)}</td></tr>`;
+      const cls = p.best === "Our driver" ? "own" : p.best === "CX" ? "cx" : "even";
+      const margin = p.charge != null ? p.charge - p.rec : null;
+      return `<tr><td>${esc(ref)}</td><td>${bLaneLabel(row, p)}</td>`
+        + `<td class="num">${p.miles}${p.milesSrc === "est" ? "*" : ""}</td>`
+        + `<td>${p.vcls}${p.vSrc === "assumed" ? "*" : ""}</td>`
+        + `<td class="num">${p.own == null ? "—" : gbp(p.own)}</td>`
+        + `<td class="num">${gbp(p.cx)}</td>`
+        + `<td><span class="badge ${cls}" title="${esc(p.why)}">${p.best}</span></td>`
+        + `<td class="num">${gbp(p.rec)}</td>`
+        + (hasCharge ? `<td class="num">${p.charge == null ? "—" : gbp(p.charge)}</td>`
+            + `<td class="num" style="color:${margin == null ? "inherit" : margin >= 0 ? "var(--good)" : "var(--bad)"}">`
+            + `${margin == null ? "—" : gbp(margin)}</td>` : "")
+        + "</tr>";
+    }).join("");
+  }
 
   const ok = bPriced.filter(x=>!x.p.skip);
-  const sum = f => ok.reduce((a,x)=>a + (f(x.p) || 0), 0);
-  const ownWins = ok.filter(x=>x.p.best === "Our driver").length;
-  const cxWins  = ok.filter(x=>x.p.best === "CX").length;
-  const totRec = sum(p=>p.rec);
-  const withCharge = ok.filter(x=>x.p.charge != null);
-  const totCharge = withCharge.reduce((a,x)=>a + x.p.charge, 0);
-  const totRecC = withCharge.reduce((a,x)=>a + x.p.rec, 0);
-  const marg = totCharge - totRecC;
-  let html = `<span>jobs priced<b>${ok.length}</b></span>`
-    + `<span>our driver / CX<b>${ownWins} / ${cxWins}</b></span>`
-    + `<span>total cost to run<b>${gbp(totRec)}</b></span>`;
-  if(withCharge.length){
-    html += `<span>they pay (${withCharge.length} rows)<b>${gbp(totCharge)}</b></span>`
-      + `<span class="${marg >= 0 ? "pos" : "neg"}">margin on those<b>${gbp(marg)}</b></span>`;
+  let html = `<span>lanes priced<b>${ok.length}</b></span>`;
+  if(bMulti){
+    for(let i=0;i<bClasses.length;i++){
+      const tot = ok.reduce((a,x)=>a + x.p.cells[i].rec, 0);
+      html += `<span>${esc(bClasses[i].class)} total<b>${gbp(tot)}</b></span>`;
+    }
+    const ownAny = ok.filter(x=>x.p.cells.some(c=>c.best === "Our driver")).length;
+    if(ownAny) html += `<span>lanes an own driver could win<b>${ownAny}</b></span>`;
+  } else {
+    const sum = f => ok.reduce((a,x)=>a + (f(x.p) || 0), 0);
+    html += `<span>our driver / CX<b>${ok.filter(x=>x.p.best === "Our driver").length} / ${ok.filter(x=>x.p.best === "CX").length}</b></span>`
+      + `<span>total cost to run<b>${gbp(sum(p=>p.rec))}</b></span>`;
+    const withCharge = ok.filter(x=>x.p.charge != null);
+    if(withCharge.length){
+      const totCharge = withCharge.reduce((a,x)=>a + x.p.charge, 0);
+      const marg = totCharge - withCharge.reduce((a,x)=>a + x.p.rec, 0);
+      html += `<span>they pay (${withCharge.length} rows)<b>${gbp(totCharge)}</b></span>`
+        + `<span class="${marg >= 0 ? "pos" : "neg"}">margin on those<b>${gbp(marg)}</b></span>`;
+    }
   }
   const skipped = bPriced.length - ok.length;
   if(skipped) html += `<span>skipped<b>${skipped}</b></span>`;
   $("bTotals").innerHTML = html;
-  $("bNote").textContent = "* estimated miles / assumed vehicle."
+
+  const heavy = bMulti && bClasses.some(c=>!OWN_CLASSES.includes(c.class));
+  $("bNote").textContent = "* estimated miles."
+    + (heavy ? "  7.5T and above have no own-driver rate card — those figures are the engine's expected CX buy cost." : "")
     + (bPriced.length > cap ? "  Showing the first " + cap + " rows — the export has them all." : "");
   $("bResults").hidden = false;
 }
 
-function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
-
 function bExportGrid(){
-  const extra = ["Cal vehicle","Cal miles","Cal own driver £","Cal CX £","Cal best","Cal cost £"];
-  if(bMap.charge) extra.push("Cal margin £");
-  const head = bHeaders.concat(extra);
-  const body = bPriced.map(({row, p})=>{
-    const base = bHeaders.map(h=>row[h] ?? "");
-    if(p.skip) return base.concat(["", "", "", "", "not priced — " + p.skip, ""], bMap.charge ? [""] : []);
-    const cells = [
-      p.vcls + (p.vSrc === "assumed" ? " (assumed)" : ""),
-      p.miles + (p.milesSrc === "est" ? " (est)" : ""),
-      p.own == null ? "" : Math.round(p.own),
-      Math.round(p.cx),
-      p.best + " — " + p.why,
-      Math.round(p.rec),
-    ];
-    if(bMap.charge) cells.push(p.charge == null ? "" : Math.round(p.charge - p.rec));
-    return base.concat(cells);
-  });
-  return [head].concat(body);
+  const head = bHeaders.slice();
+  const extras = [];                       // [{label, get(p)}] appended after the original columns
+  const fillCol = {};                      // original header -> index in bClasses
+  if(bMulti){
+    bClasses.forEach((c,i)=>{
+      if(c.col) fillCol[c.col] = i;
+      else extras.push({ label: "Cal " + c.class + " £", get: p=>Math.round(p.cells[i].rec) });
+    });
+    if(!bMap.miles) extras.push({ label: "Cal miles", get: p=>p.miles });
+    extras.push({ label: "Cal note", get: p=>p.cells.map(c=>c.vcls + ": " + c.best).join("; ") });
+  } else {
+    extras.push({ label: "Cal vehicle", get: p=>p.vcls + (p.vSrc === "assumed" ? " (assumed)" : "") });
+    extras.push({ label: "Cal miles", get: p=>p.miles + (p.milesSrc === "est" ? " (est)" : "") });
+    extras.push({ label: "Cal own driver £", get: p=>p.own == null ? "" : Math.round(p.own) });
+    extras.push({ label: "Cal CX £", get: p=>Math.round(p.cx) });
+    extras.push({ label: "Cal best", get: p=>p.best + " — " + p.why });
+    extras.push({ label: "Cal cost £", get: p=>Math.round(p.rec) });
+    if(bMap.charge) extras.push({ label: "Cal margin £", get: p=>p.charge == null ? "" : Math.round(p.charge - p.rec) });
+  }
+  const grid = [head.concat(extras.map(e=>e.label))];
+  for(const { row, p } of bPriced){
+    const base = head.map(h=>{
+      if(!p.skip && fillCol[h] !== undefined) return Math.round(p.cells[fillCol[h]].rec);
+      return row[h] ?? "";
+    });
+    const tail = extras.map(e=>{
+      if(p.skip) return e.label === "Cal note" || e.label === "Cal best" ? "not priced — " + p.skip : "";
+      return e.get(p);
+    });
+    grid.push(base.concat(tail));
+  }
+  return grid;
 }
 $("bExportX").addEventListener("click", ()=>{
   const ws = XLSX.utils.aoa_to_sheet(bExportGrid());
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Priced");
+  XLSX.utils.book_append_sheet(wb, ws, (bSheetName || "Priced").slice(0, 28));
   XLSX.writeFile(wb, bFileName + " - priced.xlsx");
 });
 $("bExportC").addEventListener("click", ()=>{
