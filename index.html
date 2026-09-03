@@ -653,8 +653,22 @@ async function setSession(s){
   showGate(null);
   if(prof.is_admin) refreshAdminPanel();
 }
-sb.auth.getSession().then(({data:{session}})=>setSession(session));
-sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+/* Embedded inside another authenticated Cal app (e.g. Driver Circle) → skip our own
+   sign-in gate; the client-side tools work without a session. A session, if present,
+   is still picked up so the AI paste-parse keeps working. */
+const LL_EMBED = new URLSearchParams(location.search).get("embed") === "1" || window.self !== window.top;
+if (LL_EMBED) {
+  showGate(null);
+  document.getElementById("accessBtn").hidden = true;
+  sb.auth.getSession().then(({data:{session}})=>{
+    sbSession = session;
+    document.getElementById("whoami").textContent = session ? session.user.email : "";
+    document.getElementById("signOut").hidden = !session;
+  });
+} else {
+  sb.auth.getSession().then(({data:{session}})=>setSession(session));
+  sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+}
 
 let pendingEmail = null;
 let authMode = "signin";   // "signin" | "request"
