@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Load Lab — WhatsApp</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💬</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --surface2:#F7F9F8;
+  --ink:#182420; --muted:#5D6B66; --faint:#8A968F;
+  --line:#DFE5E2; --line2:#EBEFED;
+  --accent:#D9641E; --accent-ink:#B14E12; --accent-soft:#FBEDE3;
+  --good:#23744F; --good-soft:#E4F1EA; --bad:#B3402E; --bad-soft:#F8E9E5;
+  --warn:#8A6D1B; --warn-soft:#F7EFD8;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131917; --surface:#1B2320; --surface2:#20292624;
+    --ink:#E8EDEA; --muted:#93A19B; --faint:#6C7A74;
+    --line:#2A3531; --line2:#232D29;
+    --accent:#F08A48; --accent-ink:#F49E66; --accent-soft:#3A281C;
+    --good:#58B98B; --good-soft:#1E3A2D; --bad:#E07A63; --bad-soft:#3E241E;
+    --warn:#D8B457; --warn-soft:#3A311A;
+  }
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{background:var(--bg); color:var(--ink); font-family:"Space Grotesk",system-ui,sans-serif; font-size:15px; line-height:1.45;}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+.appnav{position:fixed; inset:0 auto 0 0; width:176px; z-index:40; background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:18px 12px 14px;}
+.appnav .brand{font-weight:700; font-size:15px; letter-spacing:-0.01em; padding:0 8px 14px;}
+.appnav .brand small{display:block; font-weight:600; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:2px;}
+.appnav a{display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--muted); font-size:13.5px; font-weight:600; padding:9px 10px; border-radius:8px; margin-bottom:2px;}
+.appnav a:hover{color:var(--ink); background:var(--surface2);}
+.appnav a[aria-current="page"]{color:var(--accent-ink); background:var(--accent-soft);}
+.appnav .foot{margin-top:auto; font-size:11px; color:var(--faint); padding:0 8px; overflow-wrap:anywhere;}
+.appnav .foot button{border:0; background:none; color:var(--faint); cursor:pointer; font:inherit; font-size:11px; text-decoration:underline; padding:0;}
+.appnav .foot button:hover{color:var(--ink);}
+.main{padding:clamp(14px,2vw,24px); margin-left:176px;}
+@media (max-width:900px){
+  .appnav{position:static; width:auto; flex-direction:row; align-items:center; gap:4px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--line);}
+  .appnav .brand{padding:0 10px 0 0;} .appnav .brand small{display:none;}
+  .appnav .foot{margin:0 0 0 auto;}
+  .main{margin-left:0;}
+}
+header{margin:0 0 16px;}
+h1{font-size:clamp(20px,2.6vw,27px); font-weight:700; letter-spacing:-0.02em; line-height:1.1;}
+.sub{color:var(--muted); font-size:13px; margin-top:5px; max-width:78ch;}
+.layout{display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start;}
+@media (max-width:1100px){ .layout{grid-template-columns:1fr;} }
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px;}
+.card h2{font-size:14px; font-weight:700; margin-bottom:10px;}
+label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+label:first-of-type{margin-top:0;}
+input[type=text], input[type=number], select, textarea{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+input:focus-visible, select:focus-visible, textarea:focus-visible{outline:2px solid var(--accent); outline-offset:-1px;}
+textarea{font-family:"IBM Plex Mono",monospace; font-size:12px; min-height:150px; resize:vertical;}
+button.primary{font:inherit; font-weight:600; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; width:100%; margin-top:10px;}
+button.primary:hover{background:var(--accent-ink);}
+.vchips{display:flex; flex-wrap:wrap; gap:6px;}
+.vchips button{font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--surface2); color:var(--muted); border-radius:999px; padding:6px 12px;}
+.vchips button[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:#fff;}
+.row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.hint{font-size:12px; color:var(--faint); margin-top:5px;}
+.result-head{display:flex; flex-wrap:wrap; gap:12px; align-items:baseline; justify-content:space-between;}
+.big{font-size:clamp(32px,4.5vw,44px); font-weight:600; letter-spacing:-0.02em;}
+.range{color:var(--muted); font-size:14px;}
+.badge{display:inline-block; font-size:11.5px; font-weight:600; border-radius:999px; padding:3px 10px; vertical-align:middle;}
+.badge.hi{background:var(--good-soft); color:var(--good);}
+.badge.med{background:var(--line2); color:var(--muted);}
+.badge.lo{background:var(--warn-soft); color:var(--warn);}
+.ledger{margin-top:12px; border-top:1px solid var(--line);}
+.lrow{display:grid; grid-template-columns:1fr auto auto; gap:4px 14px; padding:8px 2px; border-bottom:1px solid var(--line2); align-items:baseline;}
+.lrow .lab{font-size:13.5px;}
+.lrow .mult{font-size:13px; color:var(--muted); text-align:right;}
+.lrow .run{font-size:14px; text-align:right; min-width:74px;}
+.lrow.total{border-bottom:0; border-top:2px solid var(--ink); padding-top:10px;}
+.lrow.total .lab{font-weight:700;}
+.lrow.total .run{font-weight:600; font-size:16px; color:var(--accent-ink);}
+.note{background:var(--warn-soft); color:var(--warn); border-radius:8px; padding:9px 11px; font-size:12.5px; margin-top:10px;}
+.lane{background:var(--accent-soft); border-radius:8px; padding:10px 12px; margin-top:12px; font-size:13px;}
+.avail{border:1px solid var(--line); border-radius:8px; padding:11px 12px; margin-top:12px; font-size:13px;}
+.avail .lvl{font-weight:700;}
+.sellbar{display:flex; align-items:center; gap:12px; margin-top:14px; flex-wrap:wrap;}
+.sellbar input[type=range]{flex:1; min-width:120px; accent-color:var(--accent);}
+.sellbar .sellout{font-size:15px; font-weight:600;}
+#authGate{position:fixed; inset:0; z-index:60; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
+.auth-card{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:28px; width:min(360px,100%);}
+.auth-card h1{font-size:24px; margin-bottom:2px;}
+.auth-card .sub{margin-bottom:18px;}
+.auth-card label{display:block; font-size:12px; font-weight:600; color:var(--muted); margin:12px 0 5px;}
+.auth-card input{width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px;}
+.auth-card button.primary{width:100%; margin-top:16px; padding:11px;}
+.auth-err{color:var(--bad); font-size:12.5px; margin-top:10px; min-height:16px;}
+.linkish{display:block; width:100%; margin-top:10px; border:0; background:none; cursor:pointer; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline;}
+.linkish:hover{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<nav class="appnav">
+  <div class="brand"><small>Cal · Load Lab</small>Toolkit</div>
+  <a href="index.html">📦 Vehicle Selector</a>
+  <a href="routing.html">🗺️ Routing</a>
+  <a href="availability.html">💷 Availability &amp; Pricing</a>
+  <a href="allocate.html">🚚 Driver or CX?</a>
+  <a href="whatsapp.html" aria-current="page">💬 WhatsApp</a>
+  <div class="foot"><span id="whoami"></span> <button id="signOut" hidden>sign out</button></div>
+</nav>
+
+<div id="authGate">
+  <form class="auth-card" id="authForm">
+    <h1>Load Lab</h1>
+    <div class="sub" id="authSub">Cal staff sign-in.</div>
+    <div id="stepEmail">
+      <label for="authEmail">Work email</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="you@cal.delivery">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button class="primary" type="submit" id="authSubmit">Sign in</button>
+      <button type="button" class="linkish" id="modeSwitch">New here? Request access</button>
+      <button type="button" class="linkish" id="haveCode">Sign in with a code from an admin</button>
+    </div>
+    <div id="stepCode" hidden>
+      <label for="authCode">Enter the code</label>
+      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="8">
+      <button class="primary" type="submit">Sign in</button>
+      <button type="button" class="linkish" id="authBack">Back</button>
+    </div>
+    <div class="auth-err" id="authErr"></div>
+  </form>
+  <div class="auth-card" id="pendingCard" hidden>
+    <h1>Request sent</h1>
+    <div class="sub">Your request is in — an admin needs to approve it before you can use Load Lab.
+      Once approved, just sign in again with your email and password.</div>
+    <button class="primary" id="pendingSignOut" type="button">OK</button>
+  </div>
+</div>
+
+<style>
+.wa-wrap{max-width:980px; margin:0 auto; padding:26px 22px 60px; margin-left:196px;}
+@media (max-width:900px){ .wa-wrap{margin-left:auto; padding:18px 14px 50px;} }
+.wa-wrap h1{font-size:24px; letter-spacing:-0.01em; margin-bottom:4px;}
+.wa-wrap .lead{color:var(--muted); max-width:62ch; margin-bottom:22px;}
+.wa-grid{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+@media (max-width:760px){ .wa-grid{grid-template-columns:1fr;} }
+.wa-card h2{font-size:15px; margin-bottom:10px;}
+.wa-status{display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; padding:4px 9px; border-radius:999px; background:var(--surface2); color:var(--muted);}
+.wa-status.on{background:var(--good-soft); color:var(--good);} .wa-status.qr{background:var(--warn-soft); color:var(--warn);} .wa-status.err{background:var(--bad-soft); color:var(--bad);}
+.wa-qr{display:block; width:248px; height:248px; margin:14px auto; border:1px solid var(--line); border-radius:12px; background:#fff; image-rendering:pixelated;}
+.wa-hint{font-size:12.5px; color:var(--muted); line-height:1.5;}
+.wa-row{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;}
+.wa-wrap input, .wa-wrap textarea{font:inherit; font-size:14px; color:var(--ink); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:9px 11px; width:100%;}
+.wa-wrap textarea{min-height:70px; resize:vertical;}
+.wa-wrap button.ghost{font:inherit; font-weight:600; background:none; border:1px solid var(--line); color:var(--muted); border-radius:8px; padding:8px 12px; cursor:pointer;}
+.wa-wrap button.ghost:hover{color:var(--ink); background:var(--surface2);}
+.wa-msgs{list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:6px; max-height:420px; overflow:auto;}
+.wa-msgs li{font-size:13px; padding:8px 10px; border-radius:8px; background:var(--surface2); border:1px solid var(--line2);}
+.wa-msgs li.out{background:var(--accent-soft); border-color:transparent;}
+.wa-msgs .who{font-weight:600; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; gap:8px;}
+.wa-msgs .body{white-space:pre-wrap; overflow-wrap:anywhere; margin-top:3px;}
+.wa-empty{font-size:13px; color:var(--faint); padding:14px 0;}
+.wa-msg{font-size:12.5px; color:var(--muted); min-height:16px; margin-top:6px;}
+</style>
+<main class="wa-wrap">
+  <h1>WhatsApp</h1>
+  <p class="lead">Link your own WhatsApp to Load Lab. Once it is connected, messages you receive show up here and workflows can be built on them. Scan the code with the phone the number lives on, the same way WhatsApp Web works.</p>
+  <div class="wa-grid">
+    <section class="card wa-card">
+      <h2>Your WhatsApp <span class="wa-status" id="waStatus">not connected</span></h2>
+      <div id="waConnect">
+        <p class="wa-hint">Connecting opens a WhatsApp Web session on Cal's host for your number. Only you can see its messages here. Disconnect at any time from this page or from Linked devices on your phone.</p>
+        <div class="wa-row"><button class="primary" id="waConnectBtn" type="button">Connect my WhatsApp</button></div>
+      </div>
+      <div id="waQr" hidden>
+        <img class="wa-qr" id="waQrImg" alt="WhatsApp QR code">
+        <p class="wa-hint">On your phone: WhatsApp → Settings → Linked devices → Link a device, then point it at this code. The code refreshes itself; this page updates as soon as the phone links.</p>
+      </div>
+      <div id="waLive" hidden>
+        <p class="wa-hint">Connected as <b id="waPhone"></b>. Messages arrive below within a few seconds.</p>
+        <div class="wa-row"><button class="ghost" id="waDisconnectBtn" type="button">Disconnect</button></div>
+      </div>
+      <div class="wa-msg" id="waMsg"></div>
+    </section>
+    <section class="card wa-card">
+      <h2>Send a message</h2>
+      <p class="wa-hint">A quick check that sending works, and the first building block for workflows. UK numbers with or without the +44.</p>
+      <div class="wa-row"><input id="waTo" placeholder="07700 900123" inputmode="tel"></div>
+      <div class="wa-row"><textarea id="waBody" placeholder="Message"></textarea></div>
+      <div class="wa-row"><button class="primary" id="waSendBtn" type="button" disabled>Send</button><span class="wa-msg" id="waSendMsg"></span></div>
+    </section>
+  </div>
+  <section class="card wa-card" style="margin-top:16px">
+    <h2>Recent messages</h2>
+    <ul class="wa-msgs" id="waMsgs"><li class="wa-empty">Nothing yet.</li></ul>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let WA = null, waTimer = null;
+function waPaint(){
+  const st = $("waStatus"); const s = WA?.status || "none";
+  const label = {none:"not connected", pending:"waiting for the host", starting:"starting", qr:"scan the code", connected:"connected", disconnect:"disconnecting", disconnected:"disconnected", error:"error"}[s] || s;
+  st.textContent = label; st.className = "wa-status" + (s==="connected"?" on": s==="qr"?" qr": s==="error"?" err":"");
+  $("waConnect").hidden = !(s==="none" || s==="disconnected" || s==="error");
+  $("waQr").hidden = s!=="qr"; if(s==="qr" && WA.qr_data_url) $("waQrImg").src = WA.qr_data_url;
+  $("waLive").hidden = s!=="connected"; if(s==="connected") $("waPhone").textContent = WA.phone ? "+" + WA.phone : "your number";
+  $("waSendBtn").disabled = s!=="connected";
+  $("waMsg").textContent = s==="error" ? (WA.error || "The host could not start this session.") : (s==="pending" ? "The host picks new sessions up within about ten seconds." : "");
+}
+async function waLoad(){
+  if(!sbSession) return;
+  const { data } = await sb.from("wa_session").select("*").eq("user_id", sbSession.user.id).order("created_at",{ascending:false}).limit(1).maybeSingle();
+  WA = data || null; waPaint(); waMsgs();
+}
+async function waMsgs(){
+  if(!WA) return;
+  const { data } = await sb.from("wa_message").select("direction,from_id,to_id,chat_name,body,type,ts").eq("session_id", WA.session_id).order("ts",{ascending:false}).limit(40);
+  const ul = $("waMsgs"); if(!data || !data.length){ ul.innerHTML = '<li class="wa-empty">Nothing yet.</li>'; return; }
+  ul.innerHTML = data.map(m => `<li class="${m.direction}"><div class="who"><span>${m.direction==="out" ? "to " + esc((m.to_id||"").replace("@c.us","")) : esc(m.chat_name || (m.from_id||"").replace("@c.us",""))}</span><span>${new Date(m.ts).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span></div><div class="body">${esc(m.body || ("[" + m.type + "]"))}</div></li>`).join("");
+}
+$("waConnectBtn").addEventListener("click", async ()=>{
+  const sid = "u_" + sbSession.user.id.replace(/-/g,"").slice(0,12) + "_" + Date.now().toString(36);
+  if(WA){ await sb.from("wa_session").delete().eq("id", WA.id); }
+  const { error } = await sb.from("wa_session").insert({ user_id: sbSession.user.id, session_id: sid, status: "pending", label: sbSession.user.email });
+  $("waMsg").textContent = error ? "Could not start: " + error.message : ""; waLoad();
+});
+$("waDisconnectBtn").addEventListener("click", async ()=>{ if(!WA) return; await sb.from("wa_session").update({ status: "disconnect" }).eq("id", WA.id); waLoad(); });
+$("waSendBtn").addEventListener("click", async ()=>{
+  const to = $("waTo").value.trim(), body = $("waBody").value.trim(); if(!to || !body || !WA) return;
+  const { error } = await sb.from("wa_outbox").insert({ session_id: WA.session_id, to_id: to, body });
+  $("waSendMsg").textContent = error ? "Could not queue: " + error.message : "Queued"; if(!error) $("waBody").value = "";
+});
+document.addEventListener("loadlab:session", ()=>{ waLoad(); if(!waTimer) waTimer = setInterval(waLoad, 4000); });
+</script>
+<script>
+/* ==== auth (shared Load Lab gate) ==== */
+const SB_URL = "https://ljofgxvmshetkhznqxaf.supabase.co";
+const SB_KEY = "sb_publishable_opNVNmCxE0yM2vYUkHmOhw_dzOxDQw5";
+const sb = window.supabase.createClient(SB_URL, SB_KEY);
+let sbSession = null;
+function showGate(mode){
+  $("authGate").style.display = mode ? "flex" : "none";
+  $("authForm").hidden = mode !== "login";
+  $("pendingCard").hidden = mode !== "pending";
+  if(mode === "login") setAuthMode("signin");
+}
+async function setSession(s){
+  sbSession = s;
+  $("whoami").textContent = s ? s.user.email : "";
+  $("signOut").hidden = !s;
+  if(!s){ showGate("login"); return; }
+  const { data: prof } = await sb.from("loadlab_profiles").select("approved").eq("user_id", s.user.id).maybeSingle();
+  if(!prof){ await sb.from("loadlab_profiles").insert({ user_id: s.user.id, email: s.user.email }); showGate("pending"); return; }
+  if(!prof.approved){ showGate("pending"); return; }
+  showGate(null);
+  document.dispatchEvent(new Event("loadlab:session"));
+}
+sb.auth.getSession().then(({data:{session}})=>setSession(session));
+sb.auth.onAuthStateChange((_e, s)=>setSession(s));
+let pendingEmail = null;
+let authMode = "signin";
+function setAuthMode(mode){
+  authMode = mode;
+  const req = authMode === "request";
+  $("authSubmit").textContent = req ? "Request access" : "Sign in";
+  $("modeSwitch").textContent = req ? "Already have access? Sign in" : "New here? Request access";
+  $("authSub").textContent = req ? "Choose a password — an admin approves your access after." : "Cal staff sign-in.";
+  $("authPass").autocomplete = req ? "new-password" : "current-password";
+  $("authErr").textContent = "";
+}
+$("modeSwitch").addEventListener("click", ()=> setAuthMode(authMode === "signin" ? "request" : "signin"));
+$("authForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = $("authErr");
+  err.textContent = "";
+  const onCodeStep = !$("stepCode").hidden;
+  if(!onCodeStep){
+    const email = $("authEmail").value.trim().toLowerCase();
+    const password = $("authPass").value;
+    if(!/@cal\.delivery$/.test(email)){ err.textContent = "Use your @cal.delivery email address."; return; }
+    if(password.length < 6){ err.textContent = "Password needs at least 6 characters."; return; }
+    if(authMode === "signin"){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) err.textContent = "Wrong email or password. New here? Use Request access. Forgotten it? Ask an admin for a sign-in code.";
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error){
+        err.textContent = /registered|exists/i.test(error.message) ? "That email already has an account — sign in instead." : "Couldn't create the account — try again.";
+      } else if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0){
+        err.textContent = "That email already has an account — sign in instead.";
+      }
+    }
+  } else {
+    const token = $("authCode").value.trim();
+    if(!token){ err.textContent = "Enter the code."; return; }
+    let res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
+    if(res.error) res = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "magiclink" });
+    if(res.error) err.textContent = "That code didn't work — check it, or ask for a new one.";
+  }
+});
+$("haveCode").addEventListener("click", ()=>{
+  const email = $("authEmail").value.trim().toLowerCase();
+  const err = $("authErr");
+  if(!/@cal\.delivery$/.test(email)){ err.textContent = "Type your @cal.delivery email first, then click again."; return; }
+  err.textContent = "";
+  pendingEmail = email;
+  $("stepEmail").hidden = true;
+  $("stepCode").hidden = false;
+  $("authCode").focus();
+});
+$("authBack").addEventListener("click", ()=>{ $("stepCode").hidden = true; $("stepEmail").hidden = false; });
+$("signOut").addEventListener("click", ()=> sb.auth.signOut());
+$("pendingSignOut").addEventListener("click", ()=> sb.auth.signOut());
+</script>
+</body>
+</html>
